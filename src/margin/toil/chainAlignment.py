@@ -1,5 +1,4 @@
 """Functions to chain an alignment
-
 """
 import pysam
 from margin.utils import \
@@ -208,19 +207,3 @@ def chainSamFile(samFile, outputSamFile, readFastqFile, referenceFastaFile,
         outputSam.write(cAR)
     sam.close()
     outputSam.close()
-
-
-def chainSamFileJobFunction(job, config, bwa_output_map):
-    samFile = job.fileStore.readGlobalFile(bwa_output_map["alignment"])
-    outputSam = job.fileStore.getLocalTempFile()
-    reference = job.fileStore.readGlobalFile(config["reference_FileStoreID"])
-    reads = job.fileStore.readGlobalFile(config["sample_FileStoreID"])
-
-    if DEBUG:
-        job.fileStore.logToMaster("[chainSamFileJobFunction] samFile: {sam} output {out} "
-                                  "reference {ref} reads {reads}".format(sam=samFile, out=outputSam, ref=reference,
-                                                                         reads=reads))
-
-    chainSamFile(samFile=samFile, outputSamFile=outputSam, readFastqFile=reads, referenceFastaFile=reference)
-    chainedSam = job.fileStore.importFile("file://" + outputSam)
-    job.fileStore.exportFile(chainedSam, config["output_sam_path"])

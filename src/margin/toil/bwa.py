@@ -20,13 +20,13 @@ def bwa_index_file_suffixes():
 
 
 def bwa_index_docker_call(job, bwa_fileId_map,
-                          memory="10M", cores=1, disk="10M", 
+                          memory="10M", cores=1, disk="10M",
                           bwa_docker_image="quay.io/ucsc_cgl/bwa"):
     # type: (toil.job.Job, string, string, 
     #        bool, 
     #        string, int, string, 
     #        string)
-    """Builds all required indices (crufty files) that BWA needs and 
+    """Builds all required indices (crufty files) that BWA needs and
     imports them into the fileStore
     """
     def _run_bwa_index():
@@ -34,7 +34,7 @@ def bwa_index_docker_call(job, bwa_fileId_map,
         if DEBUG:
             job.fileStore.logToMaster("[bwa_index_docker_call::_run_bwa_index]workDir: {}".format(localFiles.workDir()))
         # bwa docker call creates index files in the local working directory
-        tlp.docker_call(tool=bwa_docker_image, 
+        tlp.docker_call(tool=bwa_docker_image,
                         parameters=bwa_index_parameters,
                         work_dir=localFiles.workDir())
 
@@ -42,27 +42,27 @@ def bwa_index_docker_call(job, bwa_fileId_map,
         bwa_index_urls = ["file://" + localFiles.localFilePath(bwa_fileId_map["reference_fasta"]) +
                           suffix for suffix in bwa_index_file_suffixes()]
         new_ids        = [job.fileStore.importFile(x) for x in bwa_index_urls]
-        
+
         # make a map of suffix files to their file Id
         index_fileId_map = dict([(suf, fid) for suf, fid in izip(bwa_index_file_suffixes(), new_ids)])
 
         # remove the local files
         removed = localFiles.safeLocalDelete(bwa_index_urls)
-        
+
         if DEBUG:
             for i, x in enumerate(removed):
                 if x is False:
-                    job.fileStore.logToMaster("[bwa_docker_call::_run_bwa_index] " 
+                    job.fileStore.logToMaster("[bwa_docker_call::_run_bwa_index] "
                                               "FAILED to remove {}".format(bwa_index_urls[i]))
                 else:
                     job.fileStore.logToMaster("[bwa_docker_call::_run_bwa_index] "
                                               "removed {}".format(bwa_index_urls[i]))
-        
+
         return index_fileId_map
 
     # get a local copy of the reference and reads files for docker
     localFiles = LocalFileManager(job, [bwa_fileId_map["reference_fasta"]])
-    
+
     # arguments for the bwa indexing and alignment
     dkr_reference_path = DOCKER_DIR + localFiles.localFileName(bwa_fileId_map["reference_fasta"])
     return _run_bwa_index()
@@ -77,30 +77,30 @@ def bwa_docker_align(job, bwa_input_map, bwa_index_map, bwa_docker_image="quay.i
     }
 
     for suffix in bwa_index_file_suffixes():
-        user_paths[bwa_index_map[suffix]] = "ref{uid}.fa{suff}".format(uid=uid1, suff=suffix)  
+        user_paths[bwa_index_map[suffix]] = "ref{uid}.fa{suff}".format(uid=uid1, suff=suffix)
 
-    localFiles = LocalFileManager(job=job, 
-                                  fileIds_to_get=bwa_input_map.values() + bwa_index_map.values(), 
+    localFiles = LocalFileManager(job=job,
+                                  fileIds_to_get=bwa_input_map.values() + bwa_index_map.values(),
                                   userFileNames=user_paths)
 
     dkr_reference_path = DOCKER_DIR + localFiles.localFileName(bwa_input_map["reference_fasta"])
     dkr_reads_path     = DOCKER_DIR + localFiles.localFileName(bwa_input_map["reads_master_fasta"])
-    
+
     bwa_mem_parameters = ["mem", "-x", "ont2d", dkr_reference_path, dkr_reads_path]
-    
+
     bwa_output_map = {}
     output_path    = localFiles.workDir() + "aln{}.sam".format(uid3)
     with open(output_path, 'w') as out_aln:
-        tlp.docker_call(tool=bwa_docker_image, 
-                        parameters=bwa_mem_parameters, 
-                        work_dir=localFiles.workDir(), 
+        tlp.docker_call(tool=bwa_docker_image,
+                        parameters=bwa_mem_parameters,
+                        work_dir=localFiles.workDir(),
                         outfile=out_aln)
         assert os.path.exists(output_path)
         bwa_output_map["alignment"] = job.fileStore.importFile("file://" + output_path)
         localFiles.safeLocalDelete([output_path])
 
     return bwa_output_map
-    
+
 
 def bwa_export_alignment(job, bwa_output_map, out_sam_path):
     job.fileStore.exportFile(bwa_output_map["alignment"], out_sam_path)
@@ -108,7 +108,7 @@ def bwa_export_alignment(job, bwa_output_map, out_sam_path):
 
 
 def bwa_docker_alignment_root(job, config,
-                              memory="10M", cores=1, disk="10M", 
+                              memory="10M", cores=1, disk="10M",
                               bwa_docker_image="quay.io/ucsc_cgl/bwa"):
     # maps the various files needed to their unique fileStoreId, used
     # throughout the alignment pipeline
@@ -118,10 +118,10 @@ def bwa_docker_alignment_root(job, config,
     }
     bwa_index_map  = job.addChildJobFn(bwa_index_docker_call, bwa_input_map).rv()
     alignment_job  = job.addFollowOnJobFn(bwa_docker_align, bwa_input_map, bwa_index_map)
-    bwa_output_map = alignment_job.rv()    
+    bwa_output_map = alignment_job.rv()
     if config["no_chain"]:
         # we're done, realize the Promise, and export the result
-        alignment_job.addFollowOnJobFn(bwa_export_alignment, bwa_output_map, 
+        alignment_job.addFollowOnJobFn(bwa_export_alignment, bwa_output_map,
                                        config["output_sam_path"])
         return None
     else: 

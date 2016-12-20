@@ -145,11 +145,11 @@ def chainFn(alignedSegments, refSeq, readSeq,
             rStart2, qStart2, rEnd2, qEnd2 = alignedSegmentToCoordinates[aR2]
             assert rStart2 <= rStart
             # conditions for a chain
-            if rStart > rEnd2 and \
-                    qStart > qEnd2 and \
-                    aR.is_reverse == aR2.is_reverse and \
-                    rStart - rEnd2 + qStart - qEnd2 <= maxGap and \
-                    score + alignedSegmentToScores[aR2] > alignedSegmentToScores[aR]: 
+            if (rStart > rEnd2 and
+               qStart > qEnd2 and
+               aR.is_reverse == aR2.is_reverse and
+               rStart - rEnd2 + qStart - qEnd2 <= maxGap and
+               score + alignedSegmentToScores[aR2] > alignedSegmentToScores[aR]):
                 alignedSegmentToScores[aR] = score + alignedSegmentToScores[aR2]
                 alignedSegmentPointers[aR] = aR2
     

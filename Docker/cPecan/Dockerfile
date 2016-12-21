@@ -24,6 +24,8 @@ RUN ls -al /home/sonLib/bin
 RUN mkdir /opt/cPecanRealign && \
           cp  /home/sonLib/bin/cPecanRealign /opt/cPecanRealign/
 
+COPY runner.py /opt/cPecanRealign/runner
+RUN chmod +x /opt/cPecanRealign/runner
 COPY wrapper.sh /opt/cPecanRealign
 
 RUN mkdir /data

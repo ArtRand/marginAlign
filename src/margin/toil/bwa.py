@@ -72,8 +72,8 @@ def bwa_docker_align(job, bwa_input_map, bwa_index_map, bwa_docker_image="quay.i
     # move the read and reference files to local working directory
     uid1, uid2, uid3 = uuid.uuid4().hex, uuid.uuid4().hex, uuid.uuid4().hex
     user_paths = {  # map of fileIds to desired file names
-        bwa_input_map["reference_fasta"]   : "ref{}.fa".format(uid1),
-        bwa_input_map["reads_master_fasta"]: "{}.fa".format(uid2),
+        bwa_input_map["reference_fasta"]    : "ref{}.fa".format(uid1),
+        bwa_input_map["reads_master_fasta"] : "{}.fa".format(uid2),
     }
 
     for suffix in bwa_index_file_suffixes():

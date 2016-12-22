@@ -23,10 +23,6 @@ def main():
     parser = ArgumentParser()
     # input files
     parser.add_argument("--input", action="store", dest="input_params", required=True)
-    #parser.add_argument("--exonerate_file", action="store", dest="exonerate_file", required=True)
-    #parser.add_argument("--reference", action="store", dest="reference_fasta", required=True)
-    #parser.add_argument("--query_seqs", action="store", dest="query_seqs", required=True)
-    #parser.add_argument("--query_labels", action="store", dest="query_labels", required=True)
     parser.add_argument("--hmm_file", action="store", dest="hmm_file", required=True)
     # input parameters
     parser.add_argument("--gap_gamma", action="store", type=float, required=True)
@@ -42,12 +38,6 @@ def main():
         sys.exit(0)
     with open(args.input_params, 'r') as fH:
         params = cPickle.load(fH)
-#    assert(os.path.exists(args.exonerate_file)), "[cPecan::runner]ERROR didn't find exonerate file "\
-#                                                 "looked {}".format(args.exonerate_file)
-#    assert(os.path.exists(args.reference_fasta)), "[cPecan::runner]ERROR didn't find reference FASTA "\
-#                                                  "looked {}".format(args.reference_fasta)
-#    assert(os.path.exists(args.query_file)), "[cPecan::runner]ERROR didn't find query reads file "\
-#                                             "looked {}".format(args.query_file)
 
     # intermediate files
     uid = uuid.uuid4().hex

@@ -124,6 +124,6 @@ def bwa_docker_alignment_root(job, config,
         alignment_job.addFollowOnJobFn(bwa_export_alignment, bwa_output_map,
                                        config["output_sam_path"])
         return None
-    else: 
+    else:
         # return job to next step
         return bwa_output_map

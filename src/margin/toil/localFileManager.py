@@ -34,6 +34,9 @@ class LocalFileManager(object):
     def localFilePath(self, fileId):
         return self.file_dict[fileId][0]
 
+    def localFileUrl(self, fileId):
+        return "file://" + self.file_dict[fileId][0]
+
     def workDir(self):
         return self.work_dir + "/"
 

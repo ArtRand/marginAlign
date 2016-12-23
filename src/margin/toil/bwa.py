@@ -39,24 +39,12 @@ def bwa_index_docker_call(job, bwa_fileId_map,
                         work_dir=localFiles.workDir())
 
         # import files to fileStore
-        bwa_index_urls = ["file://" + localFiles.localFilePath(bwa_fileId_map["reference_fasta"]) +
+        bwa_index_urls = [localFiles.localFilePath(bwa_fileId_map["reference_fasta"]) +
                           suffix for suffix in bwa_index_file_suffixes()]
-        new_ids        = [job.fileStore.importFile(x) for x in bwa_index_urls]
+        new_ids        = [job.fileStore.writeGlobalFile(x) for x in bwa_index_urls]
 
         # make a map of suffix files to their file Id
         index_fileId_map = dict([(suf, fid) for suf, fid in izip(bwa_index_file_suffixes(), new_ids)])
-
-        # remove the local files
-        removed = localFiles.safeLocalDelete(bwa_index_urls)
-
-        if DEBUG:
-            for i, x in enumerate(removed):
-                if x is False:
-                    job.fileStore.logToMaster("[bwa_docker_call::_run_bwa_index] "
-                                              "FAILED to remove {}".format(bwa_index_urls[i]))
-                else:
-                    job.fileStore.logToMaster("[bwa_docker_call::_run_bwa_index] "
-                                              "removed {}".format(bwa_index_urls[i]))
 
         return index_fileId_map
 
@@ -85,19 +73,18 @@ def bwa_docker_align(job, bwa_input_map, bwa_index_map, bwa_docker_image="quay.i
 
     dkr_reference_path = DOCKER_DIR + localFiles.localFileName(bwa_input_map["reference_fasta"])
     dkr_reads_path     = DOCKER_DIR + localFiles.localFileName(bwa_input_map["reads_master_fasta"])
-
     bwa_mem_parameters = ["mem", "-x", "ont2d", dkr_reference_path, dkr_reads_path]
+    bwa_output_map     = {}
+    output_path        = localFiles.workDir() + "aln{}.sam".format(uid3)
 
-    bwa_output_map = {}
-    output_path    = localFiles.workDir() + "aln{}.sam".format(uid3)
     with open(output_path, 'w') as out_aln:
         tlp.docker_call(tool=bwa_docker_image,
                         parameters=bwa_mem_parameters,
                         work_dir=localFiles.workDir(),
                         outfile=out_aln)
-        assert os.path.exists(output_path)
-        bwa_output_map["alignment"] = job.fileStore.importFile("file://" + output_path)
-        localFiles.safeLocalDelete([output_path])
+
+    assert os.path.exists(output_path)
+    bwa_output_map["alignment"] = job.fileStore.writeGlobalFile(output_path)
 
     return bwa_output_map
 

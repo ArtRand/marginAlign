@@ -36,6 +36,7 @@ def main():
     if args.test_container:
         os.system("cPecanRealign --help")
         sys.exit(0)
+
     with open(args.input_params, 'r') as fH:
         params = cPickle.load(fH)
 

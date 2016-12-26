@@ -7,7 +7,7 @@ import uuid
 import cPickle
 from argparse import ArgumentParser
 
-print("running.. RUNNER!!")
+print("running.. RUNNER!! with EM!")
 
 
 def fasta_write(file_path, seq, seq_label):
@@ -19,23 +19,9 @@ def fasta_write(file_path, seq, seq_label):
             fH.write("%s\n" % seq[i : i + chunk_size])
 
 
-def main():
-    parser = ArgumentParser()
-    # input files
-    parser.add_argument("--input", action="store", dest="input_params", required=True)
-    parser.add_argument("--hmm_file", action="store", dest="hmm_file", required=True)
-    # input parameters
-    parser.add_argument("--gap_gamma", action="store", type=float, required=True)
-    parser.add_argument("--match_gamma", action="store", type=float, required=True)
-    # output and environment
-    parser.add_argument("--output_alignment_file", action="store", dest="out", required=True)
-    parser.add_argument("--work_dir", action="store", dest="work_dir", default="/data/", required=False)
-    parser.add_argument("--test_container", action="store_true", dest="test_container", default=False)
-    args = parser.parse_args()
-
-    if args.test_container:
-        os.system("cPecanRealign --help")
-        sys.exit(0)
+def realign(args):
+    # check input
+    assert(args.input_params is not None), "[runner.py::realign]No input arg (should be a pickle)"
 
     with open(args.input_params, 'r') as fH:
         params = cPickle.load(fH)
@@ -60,6 +46,53 @@ def main():
               "--matchGamma={matchG} >> {out}"
         os.system(cmd.format(cig=cig, ref=temp_reference_fn, query=temp_read_fn, hmm=args.hmm_file,
                              gapG=args.gap_gamma, matchG=args.match_gamma, out=args.out))
+
+
+def em(params):
+    #assert(params._alignments is not None), "[runner.py::em]alns is None"
+    #assert(is not None), "[runner.py::em]alns is None"
+    cmd = "cat {alns} | cPecanRealign --logLevel DEBUG {reads} {reference} {hmm} "\
+          "--outputExpectations {exps} --diagonalExpansion {diagEx} --splitMatrixBiggerThanThis {split}"\
+          "".format(alns=params.alignments,
+                    reads=params.query,
+                    reference=params.reference,
+                    hmm=params.hmm_file,
+                    exps=params.expectations,
+                    diagEx=params.diagonal_expansion,
+                    split=params.split_matrix_threshold)
+    print "running {}".format(cmd)
+    return
+
+
+def main():
+    parser = ArgumentParser()
+    # subprogram
+    parser.add_argument("--em", action="store_true", dest="em", default=False)
+    # input files
+    parser.add_argument("--input", action="store", dest="input_params", required=False, default=None)
+    parser.add_argument("--aln_file", action="store", dest="alignments", required=False, default=None)
+    parser.add_argument("--query", action="store", dest="query", required=False, default=None)
+    parser.add_argument("--reference", action="store", dest="reference", required=False, default=None)
+    parser.add_argument("--expectations", action="store", dest="expectations", required=False, default=None)
+    parser.add_argument("--hmm_file", action="store", dest="hmm_file", required=True)
+    # input parameters
+    parser.add_argument("--gap_gamma", action="store", type=float, required=False, default=0.5)
+    parser.add_argument("--match_gamma", action="store", type=float, required=False, default=0.0)
+    parser.add_argument("--diagonal_expansion", action="store", type=int, required=False, default=10)
+    parser.add_argument("--split_matrix_threshold", action="store", type=int, required=False, default=300)
+    # output and environment
+    parser.add_argument("--output_alignment_file", action="store", dest="out", required=False,
+                        default=None)
+    parser.add_argument("--output_expectations", action="store", dest="expectations_out", required=False,
+                        default=None)
+    parser.add_argument("--work_dir", action="store", dest="work_dir", default="/data/", required=False)
+    args = parser.parse_args()
+
+    if args.em:
+        em(args)
+    else:
+        realign(args)
+
 
 if __name__ == "__main__":
     main()

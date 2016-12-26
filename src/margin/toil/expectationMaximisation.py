@@ -4,8 +4,13 @@ pair HMM
 import os
 import pysam
 import random
+import uuid
+import toil_lib.programs as tlp
+from localFileManager import LocalFileManager, LocalFile
 from cPecan.cPecanEm import Hmm
 from margin.utils import getExonerateCigarFormatString, samIterator
+
+DOCKER_DIR = "/data/"
 
 
 def performBaumWelchOnSamJobFunction(job, config, chain_alignment_output):
@@ -108,8 +113,8 @@ def prepareBatchesJobFunction(job, config, chain_alignment_output):
         assert(len(batch_fids) == len(sampled_alignments))
         return batch_fids  # a list of FileStoreIDs
 
+    # handle the model
     working_model_fid = get_and_upload_model()
-
     # download the chained SAM, load it
     local_chained_sam = job.fileStore.readGlobalFile(chain_alignment_output["chained_alignment_FileStoreID"])
     assert(os.path.exists(local_chained_sam)), "[shard_alignments]ERROR didn't find local_chained_sam here "\
@@ -120,17 +125,48 @@ def prepareBatchesJobFunction(job, config, chain_alignment_output):
     job.addFollowOnJobFn(expectationMaximisationJobFunction, config, working_model_fid, aln_batch_fids)
 
 
-def expectationMaximisationJobFunction(job, config, working_model_fid, aln_batch_fids, iteration=0):
+def expectationMaximisationJobFunction(job, config, working_model_fid, aln_batch_fids, running_likelihood=None, iteration=0):
     if iteration < config["em_iterations"]:
         job.fileStore.logToMaster("[expectationMaximisationJobFunction]At iteration {}".format(iteration))
         expectations_fids = [
             job.addChildJobFn(getExpectationsJobFunction, aln_batch, config, working_model_fid)
             for aln_batch in aln_batch_fids]
+        # do maximization next, advance iteration, add to running likelihood
     else:
         job.fileStore.logToMaster("DONE")
 
 
-def getExpectationsJobFunction(job, batch_fid, config, working_model_fid):
-    job.fileStore.logToMaster("getting expectations for fid %s" % batch_fid)
+def getExpectationsJobFunction(job, batch_fid, config, working_model_fid,
+                               cPecan_image="quay.io/artrand/cpecanrealign"):
+    """This JobFunction runs the cPecan Docker container to collect expectations
+    for a batch of alignments, it returns the FileStoreID for the expectations
+    file"""
+    # download the files we need to run the Docker
+    fids_to_get = [
+        batch_fid,                        # the batch of exonerate CIGARs
+        config["reference_FileStoreID"],  # reference
+        config["sample_FileStoreID"],     # reads
+        working_model_fid,                # input hmm
+    ]
+    local_files = LocalFileManager(job=job, fileIds_to_get=fids_to_get)
+    # make a temp file to use for the expectations
+    uid = uuid.uuid4().hex
+    expectations_file = LocalFile(workdir=local_files.workDir(), filename="expectations.{}.expectations".format(uid))
+
+    # run the docker
+    em_arg           = "--em"
+    aln_arg          = "--aln_file={}".format(DOCKER_DIR + local_files.localFileName(batch_fid))
+    reference_arg    = "--reference={}".format(DOCKER_DIR +
+                                               local_files.localFileName(config["reference_FileStoreID"]))
+    query_arg        = "--query={}".format(DOCKER_DIR + local_files.localFileName(config["sample_FileStoreID"]))
+    hmm_arg          = "--hmm_file={}".format(DOCKER_DIR + local_files.localFileName(working_model_fid))
+    expectations_arg = "--expectations={}".format(DOCKER_DIR + expectations_file.filenameGetter())
+    #realign_args     = ["--diagonalExpansion=10", "--splitMatrixBiggerThanThis=300"]
+    cPecan_params    = [em_arg, aln_arg, reference_arg, query_arg, hmm_arg, expectations_arg]
+    tlp.docker_call(tool=cPecan_image, parameters=cPecan_params, work_dir=local_files.workDir())
+    # upload the file to the jobstore
+    job.fileStore.logToMaster("[getExpectationsJobFunction]Finished DOCKER!")
+    # return the FileStoreID
+
     return
 

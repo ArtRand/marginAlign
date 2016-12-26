@@ -6,30 +6,12 @@ import pysam
 import uuid
 import cPickle
 import toil_lib.programs as tlp
+from localFileManager import LocalFile
 from margin.utils import samIterator, getExonerateCigarFormatString, getFastaDictionary
 from sonLib.bioio import cigarRead
 
 DEBUG = True
 DOCKER_DIR = "/data/"
-
-
-class LocalFile(object):
-    """A struct containing the path and handle for a file, used to easily access the a file and
-    it's contents
-    """
-    def __init__(self, workdir, filename):
-        self.path     = workdir + "/" + filename
-        self.filename = filename
-        self.workdir  = workdir
-
-    def filenameGetter(self):
-        return self.filename
-
-    def fullpathGetter(self):
-        return self.path
-
-    def workdirGetter(self):
-        return self.workdir
 
 
 def cPecanRealignJobFunction(job, global_config, job_config,
@@ -54,11 +36,11 @@ def cPecanRealignJobFunction(job, global_config, job_config,
         cPickle.dump(job_config, fH)
 
     # run cPecan in a container
-    input_arg       = "--input={}".format(DOCKER_DIR + local_input_obj.filenameGetter())
-    hmm_arg         = "--hmm_file={}".format(DOCKER_DIR + local_hmm.filenameGetter())
-    gap_gamma_arg   = "--gap_gamma={}".format(global_config["gap_gamma"])
-    match_gamma_arg = "--match_gamma={}".format(global_config["match_gamma"])
-    output_arg      = "--output_alignment_file={}".format(DOCKER_DIR + local_output.filenameGetter())
+    input_arg         = "--input={}".format(DOCKER_DIR + local_input_obj.filenameGetter())
+    hmm_arg           = "--hmm_file={}".format(DOCKER_DIR + local_hmm.filenameGetter())
+    gap_gamma_arg     = "--gap_gamma={}".format(global_config["gap_gamma"])
+    match_gamma_arg   = "--match_gamma={}".format(global_config["match_gamma"])
+    output_arg        = "--output_alignment_file={}".format(DOCKER_DIR + local_output.filenameGetter())
     cPecan_parameters = [input_arg, hmm_arg, gap_gamma_arg, match_gamma_arg, output_arg]
     tlp.docker_call(tool=cPecan_image, parameters=cPecan_parameters, work_dir=(workdir + "/"))
 

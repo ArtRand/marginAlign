@@ -71,3 +71,23 @@ class LocalFileManager(object):
             file_dict[file_id] = (destination_path, temp_file_name)
 
         return file_dict
+
+
+class LocalFile(object):
+    """A struct containing the path and handle for a file, used to easily access the a file and
+    it's contents primarly useful for files that aren't in the FileStore already
+    """
+    def __init__(self, workdir, filename):
+        self.path     = workdir + "/" + filename
+        self.filename = filename
+        self.workdir  = workdir
+
+    def filenameGetter(self):
+        return self.filename
+
+    def fullpathGetter(self):
+        return self.path
+
+    def workdirGetter(self):
+        return self.workdir
+

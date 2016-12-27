@@ -54,10 +54,21 @@ def em(args):
     assert(args.alignments is not None), "[runner.py::em]input alignments is None"
     assert(args.reference is not None), "[runner.py::em]input reference is None"
     assert(args.expectations is not None), "[runner.py::em]expectations outpath is None"
+    assert(os.path.exists(args.hmm_file)), "[runner.py::em]Didn't find hmm file "\
+                                           "file looked here {}".format(args.hmm_file)
+    assert(os.path.exists(args.reference)), "[runner.py::em]Didn't find reference "\
+                                            "file looked here {}".format(args.reference)
+    assert(os.path.exists(args.query)), "[runner.py::em]Didn't find query "\
+                                        "file looked here {}".format(args.query)
+    assert(os.path.exists(args.alignments)), "[runner.py::em]Didn't find alignments "\
+                                             "file looked here {}".format(args.alignments)
+    #assert(os.path.exists(args.expectations)), "[runner.py::em]Didn't find expectations "\
+    #                                           "file looked here {}".format(args.expectations)
 
-    cmd = "cPecanRealign --logLevel DEBUG {reads} {reference} --loadHmm={hmm} "\
+    cmd = "cat {alns} | cPecanRealign --logLevel DEBUG {reference} {reads} --loadHmm={hmm} "\
           "--outputExpectations={exps} --diagonalExpansion={diagEx} --splitMatrixBiggerThanThis={split}"\
-          "".format(reads=args.query,
+          "".format(alns=args.alignments,
+                    reads=args.query,
                     reference=args.reference,
                     hmm=args.hmm_file,
                     exps=args.expectations,
@@ -66,8 +77,10 @@ def em(args):
 
     print("[runner.py::em]Running {}".format(cmd), file=sys.stderr)
 
-    subprocess.check_call(cmd.split(), stdin=os.system("cat {}".format(args.alignments)),
-                          stdout=sys.stdout, stderr=sys.stdout)
+    #subprocess.check_call(cmd.split(), stdin=os.system("cat {}".format(args.alignments)),
+    #                      stdout=sys.stdout, stderr=sys.stdout)
+    os.system(cmd)
+
     return 0
 
 

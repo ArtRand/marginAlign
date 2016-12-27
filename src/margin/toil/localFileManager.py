@@ -58,7 +58,7 @@ class LocalFileManager(object):
 
         for file_id in file_dict.keys():
             if DEBUG:
-                self.owner_job.fileStore.logToMaster("[LocalFileManager] getting {}".format(file_id))
+                self.owner_job.fileStore.logToMaster("[LocalFileManager]Getting {}".format(file_id))
             if userFileNames is None:
                 temp_file_name = uuid.uuid4().hex + ".tmp"
             else:

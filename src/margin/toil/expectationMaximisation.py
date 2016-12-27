@@ -50,6 +50,7 @@ def prepareBatchesJobFunction(job, config, chain_alignment_output):
                 job.fileStore.logToMaster("[get_and_upload_model]Using random starting parameters")
                 hmm.randomise()
             else:
+                job.fileStore.logToMaster("[get_and_upload_model]Using equal transition starting parameters")
                 hmm.equalise()
 
         # TODO implement this
@@ -130,15 +131,22 @@ def expectationMaximisationJobFunction(job, config, working_model_fid, aln_batch
     if iteration < config["em_iterations"]:
         job.fileStore.logToMaster("[expectationMaximisationJobFunction]At iteration {}".format(iteration))
         expectations_fids = [
-            job.addChildJobFn(getExpectationsJobFunction, aln_batch, config, working_model_fid)
+            job.addChildJobFn(getExpectationsJobFunction, aln_batch, config, working_model_fid).rv()
             for aln_batch in aln_batch_fids]
+
         # do maximization next, advance iteration, add to running likelihood
+        if running_likelihood is None:
+            running_likelihood = []
+
+        job.addFollowOnJobFn(maximizationJobFunction, config, expectations_fids, working_model_fid,
+                             aln_batch_fids, running_likelihood, iteration)
     else:
         job.fileStore.logToMaster("DONE")
 
 
 def getExpectationsJobFunction(job, batch_fid, config, working_model_fid,
-                               cPecan_image="quay.io/artrand/cpecanrealign"):
+                               cPecan_image="deb70acc495c"):
+                               #cPecan_image="quay.io/artrand/cpecanrealign"):
     """This JobFunction runs the cPecan Docker container to collect expectations
     for a batch of alignments, it returns the FileStoreID for the expectations
     file"""
@@ -153,7 +161,8 @@ def getExpectationsJobFunction(job, batch_fid, config, working_model_fid,
     # make a temp file to use for the expectations
     uid = uuid.uuid4().hex
     expectations_file = LocalFile(workdir=local_files.workDir(), filename="expectations.{}.expectations".format(uid))
-
+    for l in open(local_files.localFilePath(batch_fid), 'r'):
+        job.fileStore.logToMaster("%s" % l)
     # run the docker
     em_arg           = "--em"
     aln_arg          = "--aln_file={}".format(DOCKER_DIR + local_files.localFileName(batch_fid))
@@ -163,10 +172,69 @@ def getExpectationsJobFunction(job, batch_fid, config, working_model_fid,
     hmm_arg          = "--hmm_file={}".format(DOCKER_DIR + local_files.localFileName(working_model_fid))
     expectations_arg = "--expectations={}".format(DOCKER_DIR + expectations_file.filenameGetter())
     cPecan_params    = [em_arg, aln_arg, reference_arg, query_arg, hmm_arg, expectations_arg]
+
     tlp.docker_call(tool=cPecan_image,
                     parameters=cPecan_params,
-                    work_dir=local_files.workDir())
+                    work_dir=local_files.workDir(),
+                    outfile=open(os.devnull, 'w'))
 
     # upload the file to the jobstore
+    assert(os.path.exists(expectations_file.fullpathGetter()))
     job.fileStore.logToMaster("[getExpectationsJobFunction]Finished DOCKER!")
     return job.fileStore.writeGlobalFile(expectations_file.fullpathGetter())
+
+
+def maximizationJobFunction(job, config, expectations_fids, working_model_fid, aln_batch_fids,
+                            running_likelihood, iteration):
+    job.fileStore.logToMaster("DOING MAXIMIZATION")
+    if len(expectations_fids) == 0:
+        job.fileStore.logToMaster("[maximizationJobFunction]Didn't get any expectations FileStoreIDs")
+        exit(1)
+
+    # get the expetations files locally
+    job.fileStore.logToMaster("[maximizationJobFunction]Got %s expectations files" % len(expectations_fids))
+    local_files = LocalFileManager(job, expectations_fids + [working_model_fid])
+    hmm         = Hmm.loadHmm(local_files.localFilePath(expectations_fids[0]))
+    job.fileStore.logToMaster("[maximizationJobFunction]Based HMM on %s" % expectations_fids[0])
+    for fid in expectations_fids[1:]:  # add them up and normalize
+        hmm.addExpectationsFile(local_files.localFilePath(fid))
+        job.fileStore.logToMaster("[maximizationJobFunction]Added %s" % fid)
+    hmm.normalise()
+
+    job.fileStore.logToMaster(
+        "On %i iteration got likelihood: %s for model-type: %s, model-file %s" % (iteration,
+                                                                                  hmm.likelihood,
+                                                                                  hmm.modelType,
+                                                                                  working_model_fid))
+    job.fileStore.logToMaster("On %i iteration got transitions: %s for model-type: %s, "
+                              "model-file %s" % (iteration,
+                                                 " ".join(map(str, hmm.transitions)),
+                                                 hmm.modelType,
+                                                 working_model_fid))
+    running_likelihood.append(hmm.likelihood)
+    if config["train_emissions"]:
+        hmm.tieEmissions()
+        job.fileStore.logToMaster(
+            "On %i iteration got emissions: %s for model-type: %s, model-file %s" %
+            (iteration, " ".join(map(str, hmm.emissions)), hmm.modelType, working_model_fid))
+    else:
+        hmm.emissions = Hmm.loadHmm(local_files.localFilePath(working_model_fid)).emissions
+        job.fileStore.logToMaster("On %i using the original emissions" % iteration)
+
+    # TODO update band
+    if config["update_band"]:
+        raise NotImplementedError
+
+    # write the new model
+    new_model = job.fileStore.getLocalTempFileName()
+    hmm.write(new_model)
+    new_model_fid = job.fileStore.writeGlobalFile(new_model)
+    job.fileStore.deleteGlobalFile(working_model_fid)
+    job.addFollowOnJobFn(expectationMaximisationJobFunction,
+                         config,
+                         new_model_fid,
+                         aln_batch_fids,
+                         running_likelihood,
+                         (iteration + 1))
+
+    return

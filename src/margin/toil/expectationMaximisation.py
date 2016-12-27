@@ -2,6 +2,7 @@
 pair HMM
 """
 import os
+import sys
 import pysam
 import random
 import uuid
@@ -161,12 +162,11 @@ def getExpectationsJobFunction(job, batch_fid, config, working_model_fid,
     query_arg        = "--query={}".format(DOCKER_DIR + local_files.localFileName(config["sample_FileStoreID"]))
     hmm_arg          = "--hmm_file={}".format(DOCKER_DIR + local_files.localFileName(working_model_fid))
     expectations_arg = "--expectations={}".format(DOCKER_DIR + expectations_file.filenameGetter())
-    #realign_args     = ["--diagonalExpansion=10", "--splitMatrixBiggerThanThis=300"]
     cPecan_params    = [em_arg, aln_arg, reference_arg, query_arg, hmm_arg, expectations_arg]
-    tlp.docker_call(tool=cPecan_image, parameters=cPecan_params, work_dir=local_files.workDir())
+    tlp.docker_call(tool=cPecan_image,
+                    parameters=cPecan_params,
+                    work_dir=local_files.workDir())
+
     # upload the file to the jobstore
     job.fileStore.logToMaster("[getExpectationsJobFunction]Finished DOCKER!")
-    # return the FileStoreID
-
-    return
-
+    return job.fileStore.writeGlobalFile(expectations_file.fullpathGetter())

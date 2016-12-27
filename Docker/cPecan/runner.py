@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 """Wrapper script for cPecanRealign in Docker
 """
+from __future__ import print_function
 import os
 import sys
+import subprocess
 import uuid
 import cPickle
 from argparse import ArgumentParser
@@ -42,26 +44,31 @@ def realign(args):
     for cig, seq, lab in zip(exonerate_cigars, read_sequences, read_labels):
         fasta_write(file_path=temp_read_fn, seq=seq, seq_label=lab)
         cmd = "echo \"{cig}\" | cPecanRealign {ref} {query} --diagonalExpansion=10 "\
-              "--splitMatrixBiggerThanThis=3000 --loadHmm {hmm} --gapGamma={gapG} "\
+              "--splitMatrixBiggerThanThis=3000 --loadHmm={hmm} --gapGamma={gapG} "\
               "--matchGamma={matchG} >> {out}"
         os.system(cmd.format(cig=cig, ref=temp_reference_fn, query=temp_read_fn, hmm=args.hmm_file,
                              gapG=args.gap_gamma, matchG=args.match_gamma, out=args.out))
 
 
-def em(params):
-    #assert(params._alignments is not None), "[runner.py::em]alns is None"
-    #assert(is not None), "[runner.py::em]alns is None"
-    cmd = "cat {alns} | cPecanRealign --logLevel DEBUG {reads} {reference} {hmm} "\
-          "--outputExpectations {exps} --diagonalExpansion {diagEx} --splitMatrixBiggerThanThis {split}"\
-          "".format(alns=params.alignments,
-                    reads=params.query,
-                    reference=params.reference,
-                    hmm=params.hmm_file,
-                    exps=params.expectations,
-                    diagEx=params.diagonal_expansion,
-                    split=params.split_matrix_threshold)
-    print "running {}".format(cmd)
-    return
+def em(args):
+    assert(args.alignments is not None), "[runner.py::em]input alignments is None"
+    assert(args.reference is not None), "[runner.py::em]input reference is None"
+    assert(args.expectations is not None), "[runner.py::em]expectations outpath is None"
+
+    cmd = "cPecanRealign --logLevel DEBUG {reads} {reference} --loadHmm={hmm} "\
+          "--outputExpectations={exps} --diagonalExpansion={diagEx} --splitMatrixBiggerThanThis={split}"\
+          "".format(reads=args.query,
+                    reference=args.reference,
+                    hmm=args.hmm_file,
+                    exps=args.expectations,
+                    diagEx=args.diagonal_expansion,
+                    split=args.split_matrix_threshold)
+
+    print("[runner.py::em]Running {}".format(cmd), file=sys.stderr)
+
+    subprocess.check_call(cmd.split(), stdin=os.system("cat {}".format(args.alignments)),
+                          stdout=sys.stdout, stderr=sys.stdout)
+    return 0
 
 
 def main():

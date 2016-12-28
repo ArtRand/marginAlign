@@ -7,6 +7,7 @@ import pysam
 import random
 import uuid
 import toil_lib.programs as tlp
+from sonLib.bioio import fastaWrite
 from localFileManager import LocalFileManager, LocalFile
 from cPecan.cPecanEm import Hmm
 from margin.utils import getExonerateCigarFormatString, samIterator
@@ -63,11 +64,10 @@ def prepareBatchesJobFunction(job, config, chain_alignment_output):
 
     def shard_alignments():
         # iterate over the aligned segments and make lists of tuples, each tuple should be
-        # (exonerate cigar, query seq, alignment length) and the list should have a total 
-        # cumulative length of `maxLengthPerjob` return the list of lists of tuples        
+        # ([aligned_segments...], alignment_length)  
         cum_alignment_len = 0
-        split_alignments   = []
-        alignment_batch    = []  # list of aligned segments/aligned regions
+        split_alignments  = []  # contains the batches
+        alignment_batch   = []  # list of aligned segments/aligned regions
         for aR in samIterator(sam):
             aln_length = aR.query_alignment_length
             alignment_batch.append(aR)
@@ -82,9 +82,11 @@ def prepareBatchesJobFunction(job, config, chain_alignment_output):
         return split_alignments  # list of tuples of lists [([aR...aR], aln_len)...]
 
     def sample_alignments(split_alignments):
-        def exonerate_aligned_segments(aR_list, sam):
-            exonerate_cigars = [getExonerateCigarFormatString(aR, sam) for aR in aR_list]
-            return exonerate_cigars
+        #def exonerate_aligned_segments(aR_list, sam):
+        #    exonerate_cigars = [getExonerateCigarFormatString(aR, sam) for aR in aR_list]
+        #    # XXX get the sequences here
+        #    query_sequences = [(aR.query_name, aR.seq) for aR in aR_list]
+        #    return (exonerate_cigars, query_sequences)  # XXX
 
         assert(isinstance(split_alignments, list)), "[sample_alignments]ERROR input must be a list"
         assert(config["max_sample_alignment_length"] > 0), "[sample_alignments]ERROR max alignment length to samples < 0"
@@ -94,26 +96,56 @@ def prepareBatchesJobFunction(job, config, chain_alignment_output):
         total_sample_length = 0
         for aR_list, aln_len in split_alignments:
             if total_sample_length <= config["max_sample_alignment_length"]:
-                sampled_alignments.append(exonerate_aligned_segments(aR_list, sam))
+                sampled_alignments.append(aR_list)
+                #sampled_alignments.append((exonerate_aligned_segments(aR_list, sam)))
                 total_sample_length += aln_len
             else:
                 break
         assert(len(sampled_alignments) >= 1)
         job.fileStore.logToMaster("[sample_alignments]Sampled {total} alignment bases split into {batches} batches"
                                   "".format(total=total_sample_length, batches=len(sampled_alignments)))
-        return sampled_alignments  # a list of lists of AlignmentShards
+        return sampled_alignments
 
     def package_sampled_batches(sampled_alignments):
-        def pack_up(batch):
-            tmp = job.fileStore.getLocalTempFile()
-            with open(tmp, 'w') as fH:
-                for cigar in batch:
-                    fH.write(cigar + "\n")
-            return job.fileStore.writeGlobalFile(tmp)
+        def pack_up2(aR_list):
+            cigar_file   = job.fileStore.getLocalTempFile()
+            reads_file   = job.fileStore.getLocalTempFile()
+            cigar_handle = open(cigar_file, 'w')
+            reads_handle = open(reads_file, 'w')
+            for aR in aR_list:
+                cigar_handle.write(getExonerateCigarFormatString(aR, sam) + "\n")
+                fastaWrite(reads_handle, aR.query_name, aR.seq)
+            cigar_handle.close()
+            reads_handle.close()
+            cigar_fid = job.fileStore.writeGlobalFile(cigar_file)
+            reads_fid = job.fileStore.writeGlobalFile(reads_file)
+            return (cigar_fid, reads_fid)
 
-        batch_fids = [pack_up(batch) for batch in sampled_alignments]
+        def pack_up(batch):
+            # XXX next up change here! need to make a reads fasta
+            # XXX XXX The problem is that cPecanRealign DOES NOT work with
+            # XXX XXX fastQ files, need to make a FASTA from the aligned 
+            # XXX XXX segment sequences
+            cigars    = [x[0] for x in batch]
+            job.fileStore.logToMaster("Got cigars %s" % cigars)
+            reads     = [x[1] for x in batch]
+            job.fileStore.logToMaster("Got reads %s" % reads)
+            cigar_tmp = job.fileStore.getLocalTempFile()
+            read_tmp  = job.fileStore.getLocalTempFile()
+            assert(len(cigars) == len(reads)), "[pack_up]len(cigars) != len(read_tups)"
+
+            with open(cigar_tmp, 'w') as fH:
+                for cigar in cigars:
+                    fH.write(cigar + "\n")
+            with open(read_tmp, 'w') as fH:
+                for read_name, read_seq in reads:
+                    fastaWrite(fH, read_name, read_seq)
+
+            return (job.fileStore.writeGlobalFile(cigar_tmp), job.fileStore.writeGlobalFile(read_tmp))
+
+        batch_fids = [pack_up2(batch) for batch in sampled_alignments]
         assert(len(batch_fids) == len(sampled_alignments))
-        return batch_fids  # a list of FileStoreIDs
+        return batch_fids  # a list of tuples of FileStoreIDs (cigar_fid, fasta_fid)
 
     # handle the model
     working_model_fid = get_and_upload_model()
@@ -122,53 +154,56 @@ def prepareBatchesJobFunction(job, config, chain_alignment_output):
     assert(os.path.exists(local_chained_sam)), "[shard_alignments]ERROR didn't find local_chained_sam here "\
                                                "{}".format(local_chained_sam)
     sam = pysam.Samfile(local_chained_sam, 'r')
-    aln_batch_fids = package_sampled_batches(sample_alignments(shard_alignments()))
+    batch_fids = package_sampled_batches(sample_alignments(shard_alignments()))
     sam.close()
-    job.addFollowOnJobFn(expectationMaximisationJobFunction, config, working_model_fid, aln_batch_fids)
+    job.addFollowOnJobFn(expectationMaximisationJobFunction, config, working_model_fid, batch_fids)
 
 
-def expectationMaximisationJobFunction(job, config, working_model_fid, aln_batch_fids, running_likelihood=None, iteration=0):
+def expectationMaximisationJobFunction(job, config, working_model_fid, batch_fids, running_likelihood=None, iteration=0):
     if iteration < config["em_iterations"]:
         job.fileStore.logToMaster("[expectationMaximisationJobFunction]At iteration {}".format(iteration))
         expectations_fids = [
-            job.addChildJobFn(getExpectationsJobFunction, aln_batch, config, working_model_fid).rv()
-            for aln_batch in aln_batch_fids]
+            job.addChildJobFn(getExpectationsJobFunction, batch, config, working_model_fid).rv()
+            for batch in batch_fids]
 
         # do maximization next, advance iteration, add to running likelihood
         if running_likelihood is None:
             running_likelihood = []
 
         job.addFollowOnJobFn(maximizationJobFunction, config, expectations_fids, working_model_fid,
-                             aln_batch_fids, running_likelihood, iteration)
+                             batch_fids, running_likelihood, iteration)
     else:
         job.fileStore.logToMaster("DONE")
 
 
 def getExpectationsJobFunction(job, batch_fid, config, working_model_fid,
-                               cPecan_image="deb70acc495c"):
+                               cPecan_image="d06d9856b01c"):
                                #cPecan_image="quay.io/artrand/cpecanrealign"):
     """This JobFunction runs the cPecan Docker container to collect expectations
     for a batch of alignments, it returns the FileStoreID for the expectations
     file"""
     # download the files we need to run the Docker
+    assert(len(batch_fid) == 2), "[getExpectationsJobFunction]illegal batch_fid input"
+    cigar_fid   = batch_fid[0]
+    reads_fid   = batch_fid[1]
     fids_to_get = [
-        batch_fid,                        # the batch of exonerate CIGARs
+        #batch_fid,                        # the batch of exonerate CIGARs
+        cigar_fid,                        # CIGARS (in exonerate)
+        reads_fid,                        # reads (in FASTA)
         config["reference_FileStoreID"],  # reference
-        config["sample_FileStoreID"],     # reads
         working_model_fid,                # input hmm
     ]
     local_files = LocalFileManager(job=job, fileIds_to_get=fids_to_get)
     # make a temp file to use for the expectations
     uid = uuid.uuid4().hex
     expectations_file = LocalFile(workdir=local_files.workDir(), filename="expectations.{}.expectations".format(uid))
-    for l in open(local_files.localFilePath(batch_fid), 'r'):
-        job.fileStore.logToMaster("%s" % l)
+
     # run the docker
     em_arg           = "--em"
-    aln_arg          = "--aln_file={}".format(DOCKER_DIR + local_files.localFileName(batch_fid))
+    aln_arg          = "--aln_file={}".format(DOCKER_DIR + local_files.localFileName(cigar_fid))
     reference_arg    = "--reference={}".format(DOCKER_DIR +
                                                local_files.localFileName(config["reference_FileStoreID"]))
-    query_arg        = "--query={}".format(DOCKER_DIR + local_files.localFileName(config["sample_FileStoreID"]))
+    query_arg        = "--query={}".format(DOCKER_DIR + local_files.localFileName(reads_fid))
     hmm_arg          = "--hmm_file={}".format(DOCKER_DIR + local_files.localFileName(working_model_fid))
     expectations_arg = "--expectations={}".format(DOCKER_DIR + expectations_file.filenameGetter())
     cPecan_params    = [em_arg, aln_arg, reference_arg, query_arg, hmm_arg, expectations_arg]
@@ -176,10 +211,13 @@ def getExpectationsJobFunction(job, batch_fid, config, working_model_fid,
     tlp.docker_call(tool=cPecan_image,
                     parameters=cPecan_params,
                     work_dir=local_files.workDir(),
-                    outfile=open(os.devnull, 'w'))
+                    #outfile=open(os.devnull, 'w'))
+                    outfile=sys.stdout)
 
     # upload the file to the jobstore
-    assert(os.path.exists(expectations_file.fullpathGetter()))
+    assert(os.path.exists(expectations_file.fullpathGetter())), "[getExpectationsJobFunction]Didn't find "\
+                                                                "expectations file here"\
+                                                                "{}".format(expectations_file.fullpathGetter())
     job.fileStore.logToMaster("[getExpectationsJobFunction]Finished DOCKER!")
     return job.fileStore.writeGlobalFile(expectations_file.fullpathGetter())
 

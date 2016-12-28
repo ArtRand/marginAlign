@@ -9,11 +9,12 @@ import uuid
 import toil_lib.programs as tlp
 from sonLib.bioio import fastaWrite
 from localFileManager import LocalFileManager, LocalFile
-from cPecan.cPecanEm import Hmm
+from cPecan.cPecanEm import Hmm, SYMBOL_NUMBER
 from margin.utils import getExonerateCigarFormatString, samIterator
 
 DOCKER_DIR = "/data/"
 DEBUG = True
+
 
 def performBaumWelchOnSamJobFunction(job, config, chain_alignment_output):
     if config["hmm_file"] is not None or not config["random_start"]:  # normal EM
@@ -25,7 +26,11 @@ def performBaumWelchOnSamJobFunction(job, config, chain_alignment_output):
 
 def prepareBatchesJobFunction(job, config, chain_alignment_output):
     # type (toil.job.Job, dict<string, string>, dict<string, string>)
-    """What does this function do?
+    """This JobFunction has three steps: 1. Upload a model file to the FileStore to be the working model
+    that we start with. 2. Shard the alignments in the chained SAM into batches that have roughly
+    'max_length_per_job' worth of alignment length to them. 3. Sample from the alignment batches and
+    prepare them in Exonerate/FASTA format for cPecan, upload the batches to the FileStore and send the
+    fileIDs to the follow on function.
     """
 
     def get_and_upload_model():
@@ -82,22 +87,15 @@ def prepareBatchesJobFunction(job, config, chain_alignment_output):
         return split_alignments  # list of tuples of lists [([aR...aR], aln_len)...]
 
     def sample_alignments(split_alignments):
-        #def exonerate_aligned_segments(aR_list, sam):
-        #    exonerate_cigars = [getExonerateCigarFormatString(aR, sam) for aR in aR_list]
-        #    # XXX get the sequences here
-        #    query_sequences = [(aR.query_name, aR.seq) for aR in aR_list]
-        #    return (exonerate_cigars, query_sequences)  # XXX
-
         assert(isinstance(split_alignments, list)), "[sample_alignments]ERROR input must be a list"
         assert(config["max_sample_alignment_length"] > 0), "[sample_alignments]ERROR max alignment length to samples < 0"
         random.shuffle(split_alignments)
-        # add batches to sampled_alignments until we reach the alotted alignment length
+        # add batches to sampled_alignments until we reach the alotted sample alignment length
         sampled_alignments  = []
         total_sample_length = 0
         for aR_list, aln_len in split_alignments:
             if total_sample_length <= config["max_sample_alignment_length"]:
                 sampled_alignments.append(aR_list)
-                #sampled_alignments.append((exonerate_aligned_segments(aR_list, sam)))
                 total_sample_length += aln_len
             else:
                 break
@@ -107,7 +105,7 @@ def prepareBatchesJobFunction(job, config, chain_alignment_output):
         return sampled_alignments
 
     def package_sampled_batches(sampled_alignments):
-        def pack_up2(aR_list):
+        def pack_up(aR_list):
             cigar_file   = job.fileStore.getLocalTempFile()
             reads_file   = job.fileStore.getLocalTempFile()
             cigar_handle = open(cigar_file, 'w')
@@ -121,29 +119,7 @@ def prepareBatchesJobFunction(job, config, chain_alignment_output):
             reads_fid = job.fileStore.writeGlobalFile(reads_file)
             return (cigar_fid, reads_fid)
 
-        def pack_up(batch):
-            # XXX next up change here! need to make a reads fasta
-            # XXX XXX The problem is that cPecanRealign DOES NOT work with
-            # XXX XXX fastQ files, need to make a FASTA from the aligned 
-            # XXX XXX segment sequences
-            cigars    = [x[0] for x in batch]
-            job.fileStore.logToMaster("Got cigars %s" % cigars)
-            reads     = [x[1] for x in batch]
-            job.fileStore.logToMaster("Got reads %s" % reads)
-            cigar_tmp = job.fileStore.getLocalTempFile()
-            read_tmp  = job.fileStore.getLocalTempFile()
-            assert(len(cigars) == len(reads)), "[pack_up]len(cigars) != len(read_tups)"
-
-            with open(cigar_tmp, 'w') as fH:
-                for cigar in cigars:
-                    fH.write(cigar + "\n")
-            with open(read_tmp, 'w') as fH:
-                for read_name, read_seq in reads:
-                    fastaWrite(fH, read_name, read_seq)
-
-            return (job.fileStore.writeGlobalFile(cigar_tmp), job.fileStore.writeGlobalFile(read_tmp))
-
-        batch_fids = [pack_up2(batch) for batch in sampled_alignments]
+        batch_fids = [pack_up(batch) for batch in sampled_alignments]
         assert(len(batch_fids) == len(sampled_alignments))
         return batch_fids  # a list of tuples of FileStoreIDs (cigar_fid, fasta_fid)
 
@@ -153,13 +129,15 @@ def prepareBatchesJobFunction(job, config, chain_alignment_output):
     local_chained_sam = job.fileStore.readGlobalFile(chain_alignment_output["chained_alignment_FileStoreID"])
     assert(os.path.exists(local_chained_sam)), "[shard_alignments]ERROR didn't find local_chained_sam here "\
                                                "{}".format(local_chained_sam)
-    sam = pysam.Samfile(local_chained_sam, 'r')
+    sam = pysam.Samfile(local_chained_sam, 'r')  # used throughout the nested functions
+    # shard the alignments, sample alignments randomly, then prepare the formats and files for cPecan
     batch_fids = package_sampled_batches(sample_alignments(shard_alignments()))
     sam.close()
     job.addFollowOnJobFn(expectationMaximisationJobFunction, config, working_model_fid, batch_fids)
 
 
-def expectationMaximisationJobFunction(job, config, working_model_fid, batch_fids, running_likelihood=None, iteration=0):
+def expectationMaximisationJobFunction(job, config, working_model_fid, batch_fids,
+                                       running_likelihood=None, iteration=0):
     if iteration < config["em_iterations"]:
         job.fileStore.logToMaster("[expectationMaximisationJobFunction]At iteration {}".format(iteration))
         expectations_fids = [
@@ -173,7 +151,27 @@ def expectationMaximisationJobFunction(job, config, working_model_fid, batch_fid
         job.addFollowOnJobFn(maximizationJobFunction, config, expectations_fids, working_model_fid,
                              batch_fids, running_likelihood, iteration)
     else:
-        job.fileStore.logToMaster("DONE")
+        job.fileStore.logToMaster("DONE performed %s iterations" % iteration)
+        # get local copy of the working_model
+        if DEBUG:
+            job.fileStore.logToMaster("[expectationMaximisationJobFunction]Downloading trained model"
+                                      " with FileStoreID {}".format(working_model_fid))
+        trained_model_path = job.fileStore.readGlobalFile(working_model_fid, mutable=True)
+        assert(os.path.exists(trained_model_path)), "[expectationMaximisationJobFunction]ERROR getting local "\
+                                                    "copy of the trained model"
+        # add the likelihoods to the bottom 
+        with open(trained_model_path, 'a') as fH:
+            fH.write("\t".join(map(str, running_likelihood)) + "\n")
+
+        # upload the final, trained, model to the FileStore
+        trained_model_fid = job.fileStore.writeGlobalFile(trained_model_path)
+        if DEBUG:
+            job.fileStore.logToMaster("[expectationMaximisationJobFunction]Wrote final trained model to "
+                                      "{}".format(trained_model_fid))
+        job.fileStore.deleteGlobalFile(working_model_fid)
+        config["unnormalized_model_FileStoreID"] = trained_model_fid
+        job.addFollowOnJobFn(normalizeModelJobFunction, config)
+        return
 
 
 def getExpectationsJobFunction(job, batch_fid, config, working_model_fid,
@@ -209,20 +207,17 @@ def getExpectationsJobFunction(job, batch_fid, config, working_model_fid,
     tlp.docker_call(tool=cPecan_image,
                     parameters=cPecan_params,
                     work_dir=local_files.workDir(),
-                    #outfile=open(os.devnull, 'w'))
                     outfile=sys.stdout)
 
     # upload the file to the jobstore
     assert(os.path.exists(expectations_file.fullpathGetter())), "[getExpectationsJobFunction]Didn't find "\
                                                                 "expectations file here"\
                                                                 "{}".format(expectations_file.fullpathGetter())
-    job.fileStore.logToMaster("[getExpectationsJobFunction]Finished DOCKER!")
     return job.fileStore.writeGlobalFile(expectations_file.fullpathGetter())
 
 
 def maximizationJobFunction(job, config, expectations_fids, working_model_fid, aln_batch_fids,
                             running_likelihood, iteration):
-    job.fileStore.logToMaster("DOING MAXIMIZATION")
     if len(expectations_fids) == 0:
         job.fileStore.logToMaster("[maximizationJobFunction]Didn't get any expectations FileStoreIDs")
         exit(1)
@@ -252,6 +247,7 @@ def maximizationJobFunction(job, config, expectations_fids, working_model_fid, a
                                                      working_model_fid))
 
     running_likelihood.append(hmm.likelihood)
+
     if config["train_emissions"]:
         hmm.tieEmissions()
         job.fileStore.logToMaster(
@@ -276,5 +272,46 @@ def maximizationJobFunction(job, config, expectations_fids, working_model_fid, a
                          aln_batch_fids,
                          running_likelihood,
                          (iteration + 1))
+    return
 
+
+def normalizeModelJobFunction(job, config):
+    def setHmmIndelEmissionsToBeFlat():
+        """Set indel emissions to all be flat
+        """
+        for state in range(1, hmm.stateNumber):
+            hmm.emissions[(SYMBOL_NUMBER**2) * state:(SYMBOL_NUMBER**2) * (state + 1)] =\
+                [1.0 / (SYMBOL_NUMBER**2)] * SYMBOL_NUMBER**2
+    # XXX XXX LEFT OFF HERE XXX XXX
+    # next: 
+    #   1. move all of the HMM stuff from cPecanEm to hmm.py within the toil folder
+    #   2. finish this function, it should normalize the HMM then add the trained, normalized, 
+    #      model to the config, that can be passed to the realignment step
+    def normaliseHmmByReferenceGCContent(gcContent):
+        """Normalise background emission frequencies to GC% given
+        """
+        for state in range(hmm.stateNumber):
+            if state not in (2, 4): #Don't normalise GC content of insert states 
+                #(as they don't have any ref bases!)
+                n = toMatrix(hmm.emissions[(SYMBOL_NUMBER**2) * 
+                                           state:(SYMBOL_NUMBER**2) * (state+1)])
+                hmm.emissions[(SYMBOL_NUMBER**2) * state:(SYMBOL_NUMBER**2) * (state+1)] = \
+                fromMatrix(map(lambda i : map(lambda j : (n[i][j]/sum(n[i])) * 
+                (gcContent/2.0 if i in [1, 2] else (1.0-gcContent)/2.0), range(SYMBOL_NUMBER)), 
+                               range(SYMBOL_NUMBER))) #Normalise
+
+    assert("unnormalized_model_FileStoreID" in config.keys()), \
+        "[normalizeModelJobFunction]unnormalized model FileStoreID not in config"
+    job.fileStore.logToMaster("[normalizeModelJobFunction]NORMALIZING")
+    # get copy of unnormalized model
+    unnormalized_model_path = job.fileStore.readGlobalFile(config["unnormalized_model_FileStoreID"])
+    assert(os.path.exists(unnormalized_model_path)), "[normalizeModelJobFunction]ERROR getting model locally"
+    hmm = Hmm.loadHmm(unnormalized_model_path)
+    setHmmIndelEmissionsToBeFlat()
+    normaliseHmmByReferenceGCContent(config["gc_content"])
+    normalized_model = job.fileStore.getLocalTempFileName()
+    hmm.write(normalized_model)
+    assert(os.path.exists(normalized_model))
+    normalized_model_fid = job.fileStore.writeGlobalFile(normalized_model)
+    config["normalized_trained_model_FileStoreID"] = normalized_model_fid
     return

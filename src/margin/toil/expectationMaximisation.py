@@ -13,7 +13,7 @@ from cPecan.cPecanEm import Hmm
 from margin.utils import getExonerateCigarFormatString, samIterator
 
 DOCKER_DIR = "/data/"
-
+DEBUG = True
 
 def performBaumWelchOnSamJobFunction(job, config, chain_alignment_output):
     if config["hmm_file"] is not None or not config["random_start"]:  # normal EM
@@ -177,8 +177,7 @@ def expectationMaximisationJobFunction(job, config, working_model_fid, batch_fid
 
 
 def getExpectationsJobFunction(job, batch_fid, config, working_model_fid,
-                               cPecan_image="d06d9856b01c"):
-                               #cPecan_image="quay.io/artrand/cpecanrealign"):
+                               cPecan_image="quay.io/artrand/cpecanrealign"):
     """This JobFunction runs the cPecan Docker container to collect expectations
     for a batch of alignments, it returns the FileStoreID for the expectations
     file"""
@@ -187,7 +186,6 @@ def getExpectationsJobFunction(job, batch_fid, config, working_model_fid,
     cigar_fid   = batch_fid[0]
     reads_fid   = batch_fid[1]
     fids_to_get = [
-        #batch_fid,                        # the batch of exonerate CIGARs
         cigar_fid,                        # CIGARS (in exonerate)
         reads_fid,                        # reads (in FASTA)
         config["reference_FileStoreID"],  # reference
@@ -229,26 +227,30 @@ def maximizationJobFunction(job, config, expectations_fids, working_model_fid, a
         job.fileStore.logToMaster("[maximizationJobFunction]Didn't get any expectations FileStoreIDs")
         exit(1)
 
+    if DEBUG:
+        job.fileStore.logToMaster("[maximizationJobFunction]Got %s expectations files" % len(expectations_fids))
+        job.fileStore.logToMaster("[maximizationJobFunction]Based HMM on %s" % expectations_fids[0])
+
     # get the expetations files locally
-    job.fileStore.logToMaster("[maximizationJobFunction]Got %s expectations files" % len(expectations_fids))
     local_files = LocalFileManager(job, expectations_fids + [working_model_fid])
     hmm         = Hmm.loadHmm(local_files.localFilePath(expectations_fids[0]))
-    job.fileStore.logToMaster("[maximizationJobFunction]Based HMM on %s" % expectations_fids[0])
     for fid in expectations_fids[1:]:  # add them up and normalize
         hmm.addExpectationsFile(local_files.localFilePath(fid))
         job.fileStore.logToMaster("[maximizationJobFunction]Added %s" % fid)
     hmm.normalise()
 
-    job.fileStore.logToMaster(
-        "On %i iteration got likelihood: %s for model-type: %s, model-file %s" % (iteration,
-                                                                                  hmm.likelihood,
-                                                                                  hmm.modelType,
-                                                                                  working_model_fid))
-    job.fileStore.logToMaster("On %i iteration got transitions: %s for model-type: %s, "
-                              "model-file %s" % (iteration,
-                                                 " ".join(map(str, hmm.transitions)),
-                                                 hmm.modelType,
-                                                 working_model_fid))
+    if DEBUG:
+        job.fileStore.logToMaster(
+            "On %i iteration got likelihood: %s for model-type: %s, model-file %s" % (iteration,
+                                                                                      hmm.likelihood,
+                                                                                      hmm.modelType,
+                                                                                      working_model_fid))
+        job.fileStore.logToMaster("On %i iteration got transitions: %s for model-type: %s, "
+                                  "model-file %s" % (iteration,
+                                                     " ".join(map(str, hmm.transitions)),
+                                                     hmm.modelType,
+                                                     working_model_fid))
+
     running_likelihood.append(hmm.likelihood)
     if config["train_emissions"]:
         hmm.tieEmissions()

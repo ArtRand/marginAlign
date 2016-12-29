@@ -163,7 +163,7 @@ def expectationMaximisationJobFunction(job, config, working_model_fid, batch_fid
         with open(trained_model_path, 'a') as fH:
             fH.write("\t".join(map(str, running_likelihood)) + "\n")
 
-        # upload the final, trained, model to the FileStore
+        # upload the final, trained but unnormalized, model to the FileStore
         trained_model_fid = job.fileStore.writeGlobalFile(trained_model_path)
         if DEBUG:
             job.fileStore.logToMaster("[expectationMaximisationJobFunction]Wrote final trained model to "
@@ -288,18 +288,19 @@ def normalizeModelJobFunction(job, config):
     #   2. finish this function, it should normalize the HMM then add the trained, normalized, 
     #      model to the config, that can be passed to the realignment step
     def normaliseHmmByReferenceGCContent(gcContent):
-        """Normalise background emission frequencies to GC% given
+        """Normalise background emission frequencies to GC percent given
         """
         for state in range(hmm.stateNumber):
-            if state not in (2, 4): #Don't normalise GC content of insert states 
-                #(as they don't have any ref bases!)
-                n = toMatrix(hmm.emissions[(SYMBOL_NUMBER**2) * 
-                                           state:(SYMBOL_NUMBER**2) * (state+1)])
-                hmm.emissions[(SYMBOL_NUMBER**2) * state:(SYMBOL_NUMBER**2) * (state+1)] = \
-                fromMatrix(map(lambda i : map(lambda j : (n[i][j]/sum(n[i])) * 
-                (gcContent/2.0 if i in [1, 2] else (1.0-gcContent)/2.0), range(SYMBOL_NUMBER)), 
-                               range(SYMBOL_NUMBER))) #Normalise
+            # Don't normalise GC content of insert states (as they don't have any ref bases!)
+            if state not in (2, 4):
+                n = toMatrix(hmm.emissions[(SYMBOL_NUMBER**2) * state:(SYMBOL_NUMBER**2) * (state + 1)])
+                hmm.emissions[(SYMBOL_NUMBER**2) * state:(SYMBOL_NUMBER**2) * (state + 1)] =\
+                    fromMatrix(map(lambda i : map(lambda j : (n[i][j] / sum(n[i])) *
+                               (gcContent / 2.0 if i in [1, 2] else (1.0 - gcContent) / 2.0),
+                               range(SYMBOL_NUMBER)), range(SYMBOL_NUMBER)))  # Normalise
 
+    toMatrix = lambda e : map(lambda i : e[SYMBOL_NUMBER * i:SYMBOL_NUMBER * (i + 1)], xrange(SYMBOL_NUMBER))
+    fromMatrix = lambda e : reduce(lambda x, y : list(x) + list(y), e)
     assert("unnormalized_model_FileStoreID" in config.keys()), \
         "[normalizeModelJobFunction]unnormalized model FileStoreID not in config"
     job.fileStore.logToMaster("[normalizeModelJobFunction]NORMALIZING")

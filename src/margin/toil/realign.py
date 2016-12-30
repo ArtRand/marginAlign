@@ -27,6 +27,7 @@ def cPecanRealignJobFunction(job, global_config, job_config,
     # need the hmm file for cPecan and a local file for the output alignments
     local_hmm    = LocalFile(workdir=workdir, filename="hmm.{}.txt".format(uid))
     local_output = LocalFile(workdir=workdir, filename="cPecan_out.{}.txt".format(uid))
+
     # copy the hmm file from the FileStore to local workdir
     if global_config["EM"]:  # if we did EM, use the trained model
         assert(global_config["output_model"] is not None)  # double check
@@ -61,7 +62,11 @@ def cPecanRealignJobFunction(job, global_config, job_config,
 
 
 def rebuildSamJobFunction(job, config, chained_alignment_output, cPecan_cigar_fileIds):
-    job.fileStore.logToMaster("REBUILD!")
+    if DEBUG:
+        job.fileStore.logToMaster("[rebuildSamJobFunction]Rebuild chained SAM {chained} with alignments "
+                                  "from {cPecan_fids}"
+                                  "".format(chained=chained_alignment_output["chained_alignment_FileStoreID"],
+                                            cPecan_fids=cPecan_cigar_fileIds.__str__()))
 
     # iterates over the files, downloads them, and iterates over the alignments 
     def cigar_iterator():
@@ -112,7 +117,9 @@ def rebuildSamJobFunction(job, config, chained_alignment_output, cPecan_cigar_fi
         # Write out
         output_sam.write(aR)
 
-    job.fileStore.logToMaster("DONE REBUILDING")
+    if DEBUG:
+        job.fileStore.logToMaster("[rebuildSamJobFunction]Finished rebuilding SAM, exporting to"
+                                  "{}".format(config["output_sam_path"]))
     sam.close()
     output_sam.close()
     job.fileStore.exportFile(output_sam_path, config["output_sam_path"])
@@ -138,14 +145,14 @@ def realignSamFileJobFunction(job, config, chained_alignment_output):
         # result_fids should be updated with the FileStoreIDs with the cPecan results
         if exonerate_cigar_batch is not None:
             if DEBUG:
-                job.fileStore.logToMaster("[realignSamFile::send_alignment_batch] adding child job")
+                job.fileStore.logToMaster("[send_alignment_batch]Starting batch {batch} for contig {contig} "
+                                          "".format(batch=batch_number, contig=contig_name))
 
-            # import the files to the FileStore
-            assert(len(exonerate_cigar_batch) == len(query_seqs)), "[send_alignment_batch]"\
-                " len(exonerate_cigar_batch) != len(query_seqs)"
-            assert(len(query_seqs) == len(query_labs)), "[send_alignment_batch]"\
-                " len(query_seqs) != len(query_labs)"
-            job.fileStore.logToMaster("GOING TO ALIGN --> %s " % contig_name)
+            assert(len(exonerate_cigar_batch) == len(query_seqs)),\
+                "[send_alignment_batch] len(exonerate_cigar_batch) != len(query_seqs)"
+            assert(len(query_seqs) == len(query_labs)),\
+                "[send_alignment_batch] len(query_seqs) != len(query_labs)"
+
             cPecan_config = {
                 "exonerate_cigars" : exonerate_cigar_batch,
                 "query_sequences"  : query_seqs,
@@ -177,7 +184,6 @@ def realignSamFileJobFunction(job, config, chained_alignment_output):
             exonerate_cigar_batch = []
             query_seqs            = []
             query_labs            = []
-            #batch_number         += 1
             total_seq_len         = 0
 
         assert(exonerate_cigar_batch is not None), "[realignSamFile]ERROR exonerate_cigar_batch is NONE"

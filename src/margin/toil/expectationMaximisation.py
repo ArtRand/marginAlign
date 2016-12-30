@@ -26,11 +26,14 @@ def performBaumWelchOnSamJobFunction(job, config, chain_alignment_output):
 
 def prepareBatchesJobFunction(job, config, chain_alignment_output):
     # type (toil.job.Job, dict<string, string>, dict<string, string>)
-    """This JobFunction has three steps: 1. Upload a model file to the FileStore to be the working model
-    that we start with. 2. Shard the alignments in the chained SAM into batches that have roughly
-    'max_length_per_job' worth of alignment length to them. 3. Sample from the alignment batches and
-    prepare them in Exonerate/FASTA format for cPecan, upload the batches to the FileStore and send the
-    fileIDs to the follow on function.
+    """This JobFunction has three steps:
+        1. Upload a model file to the FileStore to be the working model
+           that we start with.
+        2. Shard the alignments in the chained SAM into batches that have roughly
+           'max_length_per_job' worth of alignment length to them.
+        3. Sample from the alignment batches and
+           prepare them in Exonerate/FASTA format for cPecan, upload the batches to the FileStore
+           and send the fileIDs to the follow on function.
     """
 
     def get_and_upload_model():
@@ -236,15 +239,11 @@ def maximizationJobFunction(job, config, expectations_fids, working_model_fid, a
 
     if DEBUG:
         job.fileStore.logToMaster(
-            "On %i iteration got likelihood: %s for model-type: %s, model-file %s" % (iteration,
-                                                                                      hmm.likelihood,
-                                                                                      hmm.modelType,
-                                                                                      working_model_fid))
-        job.fileStore.logToMaster("On %i iteration got transitions: %s for model-type: %s, "
-                                  "model-file %s" % (iteration,
-                                                     " ".join(map(str, hmm.transitions)),
-                                                     hmm.modelType,
-                                                     working_model_fid))
+            "[maximizationJobFunction]On %i iteration got likelihood: %s for model-type: %s, model-file %s"
+            % (iteration, hmm.likelihood, hmm.modelType, working_model_fid))
+        job.fileStore.logToMaster(
+            "[maximizationJobFunction]On %i iteration got transitions: %s for model-type: %s, model-file %s"
+            % (iteration, " ".join(map(str, hmm.transitions)), hmm.modelType, working_model_fid))
 
     running_likelihood.append(hmm.likelihood)
 
@@ -294,13 +293,17 @@ def normalizeModelJobFunction(job, config):
                     fromMatrix(map(lambda i : map(lambda j : (n[i][j] / sum(n[i])) *
                                (gcContent / 2.0 if i in [1, 2] else (1.0 - gcContent) / 2.0),
                                range(SYMBOL_NUMBER)), range(SYMBOL_NUMBER)))  # Normalise
-    job.fileStore.logToMaster("NORMALIZING")
+
+    assert("unnormalized_model_FileStoreID" in config.keys()),\
+        "[normalizeModelJobFunction]unnormalized model FileStoreID not in config"
+
+    if DEBUG:
+        job.fileStore.logToMaster("[normalizeModelJobFunction]normalizing model with FileStoreID %s"
+                                  % config["unnormalized_model_FileStoreID"])
 
     toMatrix = lambda e : map(lambda i : e[SYMBOL_NUMBER * i:SYMBOL_NUMBER * (i + 1)], xrange(SYMBOL_NUMBER))
     fromMatrix = lambda e : reduce(lambda x, y : list(x) + list(y), e)
 
-    assert("unnormalized_model_FileStoreID" in config.keys()), \
-        "[normalizeModelJobFunction]unnormalized model FileStoreID not in config"
     # get copy of unnormalized model
     unnormalized_model_path = job.fileStore.readGlobalFile(config["unnormalized_model_FileStoreID"])
     assert(os.path.exists(unnormalized_model_path)), "[normalizeModelJobFunction]ERROR getting model locally"
@@ -311,9 +314,10 @@ def normalizeModelJobFunction(job, config):
     hmm.write(normalized_model)
     assert(os.path.exists(normalized_model))
     normalized_model_fid = job.fileStore.writeGlobalFile(normalized_model)
-    config["normalized_trained_model_FileStoreID"] = normalized_model_fid
+
     if DEBUG:
         job.fileStore.logToMaster("[normalizeModelJobFunction]Exporting model from {fid} to {out}"
                                   "".format(fid=normalized_model_fid, out=config["output_model"]))
+
     job.fileStore.exportFile(normalized_model_fid, config["output_model"])
     return

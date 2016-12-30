@@ -28,7 +28,18 @@ def cPecanRealignJobFunction(job, global_config, job_config,
     local_hmm    = LocalFile(workdir=workdir, filename="hmm.{}.txt".format(uid))
     local_output = LocalFile(workdir=workdir, filename="cPecan_out.{}.txt".format(uid))
     # copy the hmm file from the FileStore to local workdir
-    job.fileStore.readGlobalFile(fileStoreID=global_config["hmm_file"], userPath=local_hmm.fullpathGetter())
+    if global_config["EM"]:  # if we did EM, use the trained model
+        assert(global_config["output_model"] is not None)  # double check
+        hmm_model_fid = job.fileStore.importFile(global_config["output_model"])
+        assert(hmm_model_fid is not None), "[cPecanRealignJobFunction]ERROR importing trained model"
+    else:
+        hmm_model_fid = global_config["input_hmm_FileStoreID"]
+
+    if DEBUG:
+        job.fileStore.logToMaster("[cPecanRealignJobFunction]Using HMM from {fid} and EM is {em}"
+                                  "".format(fid=hmm_model_fid, em=global_config["EM"]))
+
+    job.fileStore.readGlobalFile(fileStoreID=hmm_model_fid, userPath=local_hmm.fullpathGetter())
 
     # pickle the job_config, that contains the reference sequence, the query sequences, and the pairwise alignments
     local_input_obj = LocalFile(workdir=workdir, filename="cPecanInput.{}.pkl".format(uid))
@@ -107,7 +118,7 @@ def rebuildSamJobFunction(job, config, chained_alignment_output, cPecan_cigar_fi
     job.fileStore.exportFile(output_sam_path, config["output_sam_path"])
 
 
-def realignSamFile(job, config, chained_alignment_output):
+def realignSamFileJobFunction(job, config, chained_alignment_output):
     # type: (toil.job.Job, dict<string, string>, dict<string, string>)
     # get the sam file locally
     local_sam_path  = job.fileStore.readGlobalFile(chained_alignment_output["chained_alignment_FileStoreID"])

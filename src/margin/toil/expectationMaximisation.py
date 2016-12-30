@@ -17,7 +17,7 @@ DEBUG = True
 
 
 def performBaumWelchOnSamJobFunction(job, config, chain_alignment_output):
-    if config["hmm_file"] is not None or not config["random_start"]:  # normal EM
+    if config["input_hmm_FileStoreID"] is not None or not config["random_start"]:  # normal EM
         job.addFollowOnJobFn(prepareBatchesJobFunction, config, chain_alignment_output)
     else:
         raise NotImplementedError
@@ -36,11 +36,11 @@ def prepareBatchesJobFunction(job, config, chain_alignment_output):
     def get_and_upload_model():
         # establishes the starting model, uploads it to the FileStore and returns the FileStoreID
         # returns the FileStoreID of the starting, working model
-        if config["hmm_file"] is not None:
+        if config["input_hmm_FileStoreID"] is not None:
             # load the input model, normalize it, and make a copy that we use as the starting model
             # this way the input model is not changed 
-            job.fileStore.logToMaster("[get_and_upload_model]Loading HMM from {}".format(config["hmm_file"]))
-            local_hmm = job.fileStore.readGlobalFile(config["hmm_file"])
+            job.fileStore.logToMaster("[get_and_upload_model]Loading HMM from {}".format(config["input_hmm_FileStoreID"]))
+            local_hmm = job.fileStore.readGlobalFile(config["input_hmm_FileStoreID"])
             assert(os.path.exists(local_hmm)), "[get_and_upload_model]ERROR couldn't find local HMM here {}"\
                                                "".format(local_hmm)
 
@@ -151,7 +151,7 @@ def expectationMaximisationJobFunction(job, config, working_model_fid, batch_fid
         job.addFollowOnJobFn(maximizationJobFunction, config, expectations_fids, working_model_fid,
                              batch_fids, running_likelihood, iteration)
     else:
-        job.fileStore.logToMaster("DONE performed %s iterations" % iteration)
+        job.fileStore.logToMaster("[expectationMaximisationJobFunction]Performed %s iterations" % iteration)
         # get local copy of the working_model
         if DEBUG:
             job.fileStore.logToMaster("[expectationMaximisationJobFunction]Downloading trained model"
@@ -282,11 +282,7 @@ def normalizeModelJobFunction(job, config):
         for state in range(1, hmm.stateNumber):
             hmm.emissions[(SYMBOL_NUMBER**2) * state:(SYMBOL_NUMBER**2) * (state + 1)] =\
                 [1.0 / (SYMBOL_NUMBER**2)] * SYMBOL_NUMBER**2
-    # XXX XXX LEFT OFF HERE XXX XXX
-    # next: 
-    #   1. move all of the HMM stuff from cPecanEm to hmm.py within the toil folder
-    #   2. finish this function, it should normalize the HMM then add the trained, normalized, 
-    #      model to the config, that can be passed to the realignment step
+
     def normaliseHmmByReferenceGCContent(gcContent):
         """Normalise background emission frequencies to GC percent given
         """
@@ -298,12 +294,13 @@ def normalizeModelJobFunction(job, config):
                     fromMatrix(map(lambda i : map(lambda j : (n[i][j] / sum(n[i])) *
                                (gcContent / 2.0 if i in [1, 2] else (1.0 - gcContent) / 2.0),
                                range(SYMBOL_NUMBER)), range(SYMBOL_NUMBER)))  # Normalise
+    job.fileStore.logToMaster("NORMALIZING")
 
     toMatrix = lambda e : map(lambda i : e[SYMBOL_NUMBER * i:SYMBOL_NUMBER * (i + 1)], xrange(SYMBOL_NUMBER))
     fromMatrix = lambda e : reduce(lambda x, y : list(x) + list(y), e)
+
     assert("unnormalized_model_FileStoreID" in config.keys()), \
         "[normalizeModelJobFunction]unnormalized model FileStoreID not in config"
-    job.fileStore.logToMaster("[normalizeModelJobFunction]NORMALIZING")
     # get copy of unnormalized model
     unnormalized_model_path = job.fileStore.readGlobalFile(config["unnormalized_model_FileStoreID"])
     assert(os.path.exists(unnormalized_model_path)), "[normalizeModelJobFunction]ERROR getting model locally"
@@ -315,4 +312,8 @@ def normalizeModelJobFunction(job, config):
     assert(os.path.exists(normalized_model))
     normalized_model_fid = job.fileStore.writeGlobalFile(normalized_model)
     config["normalized_trained_model_FileStoreID"] = normalized_model_fid
+    if DEBUG:
+        job.fileStore.logToMaster("[normalizeModelJobFunction]Exporting model from {fid} to {out}"
+                                  "".format(fid=normalized_model_fid, out=config["output_model"]))
+    job.fileStore.exportFile(normalized_model_fid, config["output_model"])
     return

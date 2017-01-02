@@ -65,7 +65,7 @@ def rebuildSamJobFunction(job, config, chained_alignment_output, cPecan_cigar_fi
     if DEBUG:
         job.fileStore.logToMaster("[rebuildSamJobFunction]Rebuild chained SAM {chained} with alignments "
                                   "from {cPecan_fids}"
-                                  "".format(chained=chained_alignment_output["chained_alignment_FileStoreID"],
+                                  "".format(chained=chained_alignment_output["chain_alignment_output"],
                                             cPecan_fids=cPecan_cigar_fileIds.__str__()))
 
     # iterates over the files, downloads them, and iterates over the alignments 
@@ -78,7 +78,7 @@ def rebuildSamJobFunction(job, config, chained_alignment_output, cPecan_cigar_fi
             job.fileStore.deleteLocalFile(fid)
 
     # download the chained sam
-    local_sam_path = job.fileStore.readGlobalFile(chained_alignment_output["chained_alignment_FileStoreID"])
+    local_sam_path = job.fileStore.readGlobalFile(chained_alignment_output["chain_alignment_output"])
     try:
         sam = pysam.Samfile(local_sam_path, 'r')
     except:
@@ -128,7 +128,7 @@ def rebuildSamJobFunction(job, config, chained_alignment_output, cPecan_cigar_fi
 def realignSamFileJobFunction(job, config, chained_alignment_output):
     # type: (toil.job.Job, dict<string, string>, dict<string, string>)
     # get the sam file locally
-    local_sam_path  = job.fileStore.readGlobalFile(chained_alignment_output["chained_alignment_FileStoreID"])
+    local_sam_path  = job.fileStore.readGlobalFile(chained_alignment_output["chain_alignment_output"])
     reference_fasta = job.fileStore.readGlobalFile(config["reference_FileStoreID"])
     assert(os.path.exists(reference_fasta)), "[realignSamFile]ERROR was not able to download reference from FileStore"
     reference_map = getFastaDictionary(reference_fasta)

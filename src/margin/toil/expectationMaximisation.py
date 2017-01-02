@@ -9,7 +9,6 @@ import uuid
 import toil_lib.programs as tlp
 from sonLib.bioio import fastaWrite
 from localFileManager import LocalFileManager, LocalFile
-#from cPecan.cPecanEm import Hmm, SYMBOL_NUMBER
 from hmm import Hmm, SYMBOL_NUMBER
 from margin.utils import getExonerateCigarFormatString, samIterator
 
@@ -130,7 +129,7 @@ def prepareBatchesJobFunction(job, config, chain_alignment_output):
     # handle the model
     working_model_fid = get_and_upload_model()
     # download the chained SAM, load it
-    local_chained_sam = job.fileStore.readGlobalFile(chain_alignment_output["chained_alignment_FileStoreID"])
+    local_chained_sam = job.fileStore.readGlobalFile(chain_alignment_output["chain_alignment_output"])
     assert(os.path.exists(local_chained_sam)), "[shard_alignments]ERROR didn't find local_chained_sam here "\
                                                "{}".format(local_chained_sam)
     sam = pysam.Samfile(local_chained_sam, 'r')  # used throughout the nested functions

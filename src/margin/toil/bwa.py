@@ -106,11 +106,5 @@ def bwa_docker_alignment_root(job, config,
     bwa_index_map  = job.addChildJobFn(bwa_index_docker_call, bwa_input_map).rv()
     alignment_job  = job.addFollowOnJobFn(bwa_docker_align, bwa_input_map, bwa_index_map)
     bwa_output_map = alignment_job.rv()
-    if config["no_chain"]:
-        # we're done, realize the Promise, and export the result
-        alignment_job.addFollowOnJobFn(bwa_export_alignment, bwa_output_map,
-                                       config["output_sam_path"])
-        return None
-    else:
-        # return job to next step
-        return bwa_output_map
+
+    return bwa_output_map

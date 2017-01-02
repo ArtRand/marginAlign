@@ -14,7 +14,7 @@ class Hmm:
         self.emissions = [0.0] * (SYMBOL_NUMBER**2 * self.stateNumber)
         self.likelihood = 0.0
         self.runningLikelihoods = []
-        
+
     def _modelTypeInt(self):
         return { "fiveState":0, "fiveStateAsymmetric":1, "threeState":2, "threeStateAsymmetric":3}[self.modelType]
 

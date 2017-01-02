@@ -55,7 +55,7 @@ class TestCase(unittest.TestCase):
         # Check if samfile exists
         self.assertTrue(os.path.isfile(samFile))
         #The call calculate identity will run a lot of internal consistency checks
-        #as it calculates the alignment identity.
+        as it calculates the alignment identity.
         return ReadAlignmentStats.getReadAlignmentStats(samFile, readFastqFile, 
                                                         referenceFastaFile, globalAlignment=True)
     
@@ -65,7 +65,7 @@ class TestCase(unittest.TestCase):
         #Load mutations
         mutations = set(map(lambda x : (x[0], int(x[1])+1, x[2]), \
                             map(lambda x : x.split(), open(mutationsFile, 'r'))))
-        #Load VCF mutations
+        #Load VCF mutation
         imputedMutations = vcfRead(vcfFile)
             
         #print "Known mutations", sorted(list(mutations))

@@ -17,7 +17,7 @@ DOCKER_DIR = "/data/"
 def cPecanRealignJobFunction(job, global_config, job_config,
                              cPecan_image="quay.io/artrand/cpecanrealign"):
     # type: (toil.job.Job, dict<string, parameters>, dict<string, string>)
-    """Runs Docker-ized cPecan Hmm
+    """Runs Docker-ized cPecan HMM
     """
     # uid to be super sure we don't have any file collisions
     uid = uuid.uuid4().hex

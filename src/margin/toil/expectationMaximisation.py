@@ -9,7 +9,8 @@ import uuid
 import toil_lib.programs as tlp
 from sonLib.bioio import fastaWrite
 from localFileManager import LocalFileManager, LocalFile
-from cPecan.cPecanEm import Hmm, SYMBOL_NUMBER
+#from cPecan.cPecanEm import Hmm, SYMBOL_NUMBER
+from hmm import Hmm, SYMBOL_NUMBER
 from margin.utils import getExonerateCigarFormatString, samIterator
 
 DOCKER_DIR = "/data/"

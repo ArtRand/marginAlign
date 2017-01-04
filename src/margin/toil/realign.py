@@ -35,6 +35,7 @@ def cPecanRealignJobFunction(job, global_config, job_config,
         assert(hmm_model_fid is not None), "[cPecanRealignJobFunction]ERROR importing trained model"
     else:
         hmm_model_fid = global_config["input_hmm_FileStoreID"]
+        assert(hmm_model_fid is not None), "[cPecanRealignJobFunction]No input model and no EM"
 
     if DEBUG:
         job.fileStore.logToMaster("[cPecanRealignJobFunction]Using HMM from {fid} and EM is {em}"

@@ -33,14 +33,12 @@ def bwa_index_docker_call(job, bwa_fileId_map,
         bwa_index_parameters = ["index", dkr_reference_path]
         if DEBUG:
             job.fileStore.logToMaster("[bwa_index_docker_call::_run_bwa_index]workDir: {}".format(localFiles.workDir()))
-        # bwa docker call creates index files in the local working directory
-        assert(os.path.exists(localFiles.localFilePath(bwa_fileId_map["reference_fasta"]))),\
-            "[_run_bwa_index] no reference file locally"
 
         tlp.docker_call(tool=bwa_docker_image,
                         parameters=bwa_index_parameters,
                         work_dir=localFiles.workDir())
 
+        # bwa docker call creates index files in the local working directory
         # import files to fileStore
         bwa_index_urls = [localFiles.localFilePath(bwa_fileId_map["reference_fasta"]) +
                           suffix for suffix in bwa_index_file_suffixes()]

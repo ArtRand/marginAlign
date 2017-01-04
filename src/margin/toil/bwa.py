@@ -10,6 +10,7 @@ import uuid
 from itertools import izip
 import toil_lib.programs as tlp
 from localFileManager import LocalFileManager
+from alignment import AlignmentStruct, AlignmentFormat
 
 DEBUG = True
 DOCKER_DIR = "/data/"
@@ -75,7 +76,6 @@ def bwa_docker_align(job, bwa_input_map, bwa_index_map, bwa_docker_image="quay.i
     dkr_reference_path = DOCKER_DIR + localFiles.localFileName(bwa_input_map["reference_fasta"])
     dkr_reads_path     = DOCKER_DIR + localFiles.localFileName(bwa_input_map["reads_master_fasta"])
     bwa_mem_parameters = ["mem", "-x", "ont2d", dkr_reference_path, dkr_reads_path]
-    bwa_output_map     = {}
     output_path        = localFiles.workDir() + "aln{}.sam".format(uid3)
 
     with open(output_path, 'w') as out_aln:
@@ -85,9 +85,9 @@ def bwa_docker_align(job, bwa_input_map, bwa_index_map, bwa_docker_image="quay.i
                         outfile=out_aln)
 
     assert os.path.exists(output_path)
-    bwa_output_map["alignment"] = job.fileStore.writeGlobalFile(output_path)
+    alignment_fid = job.fileStore.writeGlobalFile(output_path)
 
-    return bwa_output_map
+    return AlignmentStruct(alignment_fid, AlignmentFormat.SAM)
 
 
 def bwa_export_alignment(job, bwa_output_map, out_sam_path):
@@ -100,12 +100,13 @@ def bwa_docker_alignment_root(job, config,
                               bwa_docker_image="quay.io/ucsc_cgl/bwa"):
     # maps the various files needed to their unique fileStoreId, used
     # throughout the alignment pipeline
+    # TODO this extra dict is unnecessary get rid of it
     bwa_input_map = {
         "reference_fasta"   : config["reference_FileStoreID"],
         "reads_master_fasta": config["sample_FileStoreID"],
     }
-    bwa_index_map  = job.addChildJobFn(bwa_index_docker_call, bwa_input_map).rv()
-    alignment_job  = job.addFollowOnJobFn(bwa_docker_align, bwa_input_map, bwa_index_map)
-    bwa_output_map = alignment_job.rv()
+    bwa_index_map = job.addChildJobFn(bwa_index_docker_call, bwa_input_map).rv()
+    alignment_job = job.addFollowOnJobFn(bwa_docker_align, bwa_input_map, bwa_index_map)
+    bwa_alnstruct = alignment_job.rv()
 
-    return bwa_output_map
+    return bwa_alnstruct

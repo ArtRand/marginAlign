@@ -14,7 +14,7 @@ DEBUG = True
 DOCKER_DIR = "/data/"
 
 
-def cPecanRealignJobFunction(job, global_config, job_config,
+def cPecanRealignJobFunction(job, global_config, job_config, batch_number,
                              cPecan_image="quay.io/artrand/cpecanrealign"):
     # type: (toil.job.Job, dict<string, parameters>, dict<string, string>)
     """Runs Docker-ized cPecan HMM
@@ -38,8 +38,10 @@ def cPecanRealignJobFunction(job, global_config, job_config,
         assert(hmm_model_fid is not None), "[cPecanRealignJobFunction]No input model and no EM"
 
     if DEBUG:
-        job.fileStore.logToMaster("[cPecanRealignJobFunction]Using HMM from {fid} and EM is {em}"
-                                  "".format(fid=hmm_model_fid, em=global_config["EM"]))
+        job.fileStore.logToMaster("[cPecanRealignJobFunction]Batch {batch} using HMM from {fid} "
+                                  "and EM is {em}".format(batch=batch_number,
+                                                          fid=hmm_model_fid,
+                                                          em=global_config["EM"]))
 
     job.fileStore.readGlobalFile(fileStoreID=hmm_model_fid, userPath=local_hmm.fullpathGetter())
 
@@ -161,7 +163,7 @@ def realignSamFileJobFunction(job, config, chained_alignment_output):
                 "contig_seq"       : reference_map[contig_name],  # this might be very inefficient for large genomes..?
                 "contig_name"      : contig_name,
             }
-            result_id = job.addChildJobFn(cPecanRealignJobFunction, config, cPecan_config).rv()
+            result_id = job.addChildJobFn(cPecanRealignJobFunction, config, cPecan_config, batch_number).rv()
             result_fids.append((result_id, batch_number))
             return batch_number + 1
         else:  # mostly for initial conditions, do nothing

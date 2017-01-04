@@ -78,6 +78,7 @@ class LocalFile(object):
     it's contents primarly useful for files that aren't in the FileStore already
     """
     def __init__(self, workdir, filename):
+        # TODO make this an os.path.join
         self.path     = workdir + "/" + filename
         self.filename = filename
         self.workdir  = workdir

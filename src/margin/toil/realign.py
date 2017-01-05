@@ -6,12 +6,18 @@ import pysam
 import uuid
 import cPickle
 import toil_lib.programs as tlp
+from toil_lib import require
 from localFileManager import LocalFile
 from margin.utils import samIterator, getExonerateCigarFormatString, getFastaDictionary
 from sonLib.bioio import cigarRead
 
 DEBUG = True
 DOCKER_DIR = "/data/"
+
+
+def realignSamFileJobFunction(job, config, input_samfile_fid):
+    job.addFollowOnJobFn(shardSamJobFunction, config, input_samfile_fid,
+                         cPecanRealignJobFunction, rebuildSamJobFunction)
 
 
 def cPecanRealignJobFunction(job, global_config, job_config, batch_number,
@@ -64,11 +70,11 @@ def cPecanRealignJobFunction(job, global_config, job_config, batch_number,
     return result_fid
 
 
-def rebuildSamJobFunction(job, config, chained_alignment_output, cPecan_cigar_fileIds):
+def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
     if DEBUG:
         job.fileStore.logToMaster("[rebuildSamJobFunction]Rebuild chained SAM {chained} with alignments "
                                   "from {cPecan_fids}"
-                                  "".format(chained=chained_alignment_output["chain_alignment_output"],
+                                  "".format(chained=input_samfile_fid,
                                             cPecan_fids=cPecan_cigar_fileIds.__str__()))
 
     # iterates over the files, downloads them, and iterates over the alignments 
@@ -81,7 +87,7 @@ def rebuildSamJobFunction(job, config, chained_alignment_output, cPecan_cigar_fi
             job.fileStore.deleteLocalFile(fid)
 
     # download the chained sam
-    local_sam_path = job.fileStore.readGlobalFile(chained_alignment_output["chain_alignment_output"])
+    local_sam_path = job.fileStore.readGlobalFile(input_samfile_fid)
     try:
         sam = pysam.Samfile(local_sam_path, 'r')
     except:
@@ -128,12 +134,14 @@ def rebuildSamJobFunction(job, config, chained_alignment_output, cPecan_cigar_fi
     job.fileStore.exportFile(output_sam_path, config["output_sam_path"])
 
 
-def realignSamFileJobFunction(job, config, chained_alignment_output):
-    # type: (toil.job.Job, dict<string, string>, dict<string, string>)
+def shardSamJobFunction(job, config, input_samfile_fid, batch_job_function, followOn_job_function):
+    # type: (toil.job.Job, dict<string, string>, string,
+    #        JobFunctionWrappingJob, JobFunctionWrappingJob)
     # get the sam file locally
-    local_sam_path  = job.fileStore.readGlobalFile(chained_alignment_output["chain_alignment_output"])
+    local_sam_path  = job.fileStore.readGlobalFile(input_samfile_fid)
     reference_fasta = job.fileStore.readGlobalFile(config["reference_FileStoreID"])
-    assert(os.path.exists(reference_fasta)), "[realignSamFile]ERROR was not able to download reference from FileStore"
+    require(os.path.exists(reference_fasta),
+            "[realignSamFile]ERROR was not able to download reference from FileStore")
     reference_map = getFastaDictionary(reference_fasta)
 
     try:
@@ -163,7 +171,7 @@ def realignSamFileJobFunction(job, config, chained_alignment_output):
                 "contig_seq"       : reference_map[contig_name],  # this might be very inefficient for large genomes..?
                 "contig_name"      : contig_name,
             }
-            result_id = job.addChildJobFn(cPecanRealignJobFunction, config, cPecan_config, batch_number).rv()
+            result_id = job.addChildJobFn(batch_job_function, config, cPecan_config, batch_number).rv()
             result_fids.append((result_id, batch_number))
             return batch_number + 1
         else:  # mostly for initial conditions, do nothing
@@ -171,8 +179,8 @@ def realignSamFileJobFunction(job, config, chained_alignment_output):
 
     total_seq_len         = sys.maxint  # send a batch when we have this many bases
     exonerate_cigar_batch = None        # send a batch of exonerate-formatted cigars
-    query_seqs            = None        # file containing read sequences
-    query_labs            = None        # file containing read labels (headers)
+    query_seqs            = None        # list containing read sequences
+    query_labs            = None        # list containing read labels (headers)
     contig_name           = None        # send a batch when we get to a new contig
     cPecan_results        = []          # container with the FileStoreIDs of the re-alignment results
     batch_number          = 0           # ordering of the batches, so we can reassemble the new sam later
@@ -202,6 +210,6 @@ def realignSamFileJobFunction(job, config, chained_alignment_output):
 
     send_alignment_batch(result_fids=cPecan_results, batch_number=batch_number)
 
-    job.addFollowOnJobFn(rebuildSamJobFunction, config, chained_alignment_output, cPecan_results)
+    job.addFollowOnJobFn(followOn_job_function, config, input_samfile_fid, cPecan_results)
 
     sam.close()

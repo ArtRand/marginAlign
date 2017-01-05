@@ -16,15 +16,15 @@ DOCKER_DIR = "/data/"
 DEBUG = True
 
 
-def performBaumWelchOnSamJobFunction(job, config, chain_alignment_output):
+def performBaumWelchOnSamJobFunction(job, config, input_samfile_fid):
     if config["input_hmm_FileStoreID"] is not None or not config["random_start"]:  # normal EM
-        job.addFollowOnJobFn(prepareBatchesJobFunction, config, chain_alignment_output)
+        job.addFollowOnJobFn(prepareBatchesJobFunction, config, input_samfile_fid)
     else:
         raise NotImplementedError
     return
 
 
-def prepareBatchesJobFunction(job, config, chain_alignment_output):
+def prepareBatchesJobFunction(job, config, input_samfile_fid):
     # type (toil.job.Job, dict<string, string>, dict<string, string>)
     """This JobFunction has three steps:
         1. Upload a model file to the FileStore to be the working model
@@ -129,7 +129,7 @@ def prepareBatchesJobFunction(job, config, chain_alignment_output):
     # handle the model
     working_model_fid = get_and_upload_model()
     # download the chained SAM, load it
-    local_chained_sam = job.fileStore.readGlobalFile(chain_alignment_output["chain_alignment_output"])
+    local_chained_sam = job.fileStore.readGlobalFile(input_samfile_fid)
     assert(os.path.exists(local_chained_sam)), "[shard_alignments]ERROR didn't find local_chained_sam here "\
                                                "{}".format(local_chained_sam)
     sam = pysam.Samfile(local_chained_sam, 'r')  # used throughout the nested functions

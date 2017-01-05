@@ -15,12 +15,12 @@ DEBUG = True
 DOCKER_DIR = "/data/"
 
 
-def setupLocalFiles(job, global_config):
+def setupLocalFiles(parent_job, global_config):
     # uid to be super sure we don't have any file collisions
     uid = uuid.uuid4().hex
 
     # need a local directory to pass to docker
-    workdir = job.fileStore.getLocalTempDir()
+    workdir = parent_job.fileStore.getLocalTempDir()
     # need the hmm file for cPecan and a local file for the output alignments
     local_hmm    = LocalFile(workdir=workdir, filename="hmm.{}.txt".format(uid))
     local_output = LocalFile(workdir=workdir, filename="cPecan_out.{}.txt".format(uid))
@@ -28,17 +28,23 @@ def setupLocalFiles(job, global_config):
     # copy the hmm file from the FileStore to local workdir
     if global_config["EM"]:  # if we did EM, use the trained model
         assert(global_config["output_model"] is not None)  # double check
-        hmm_model_fid = job.fileStore.importFile(global_config["output_model"])
+        hmm_model_fid = parent_job.fileStore.importFile(global_config["output_model"])
         assert(hmm_model_fid is not None), "[cPecanRealignJobFunction]ERROR importing trained model"
     else:
         hmm_model_fid = global_config["input_hmm_FileStoreID"]
         assert(hmm_model_fid is not None), "[cPecanRealignJobFunction]No input model and no EM"
     # read the HMM to the local file location
-    job.fileStore.readGlobalFile(fileStoreID=hmm_model_fid, userPath=local_hmm.fullpathGetter())
+    parent_job.fileStore.readGlobalFile(fileStoreID=hmm_model_fid, userPath=local_hmm.fullpathGetter())
 
     local_input_obj = LocalFile(workdir=workdir, filename="cPecanInput.{}.pkl".format(uid))
 
     return workdir, local_hmm, local_output, hmm_model_fid, local_input_obj
+
+
+def sortResultsByBatch(cPecan_result_fids):
+    batch_sorted       = sorted(cPecan_result_fids, key=lambda tup: tup[1])
+    sorted_cPecan_fids = [x[0] for x in batch_sorted]
+    return sorted_cPecan_fids
 
 
 def realignSamFileJobFunction(job, config, input_samfile_fid):
@@ -123,8 +129,9 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
         # TODO maybe throw an exception or something? How does toil handle errors?
         return
     # sort the cPecan results by batch, then discard the batch number. this is so they 'line up' with the sam
-    batch_sorted       = sorted(cPecan_cigar_fileIds, key=lambda tup: tup[1])
-    sorted_cPecan_fids = [x[0] for x in batch_sorted]
+    sorted_cPecan_fids = sortResultsByBatch(cPecan_cigar_fileIds)
+    #batch_sorted       = sorted(cPecan_cigar_fileIds, key=lambda tup: tup[1])
+    #sorted_cPecan_fids = [x[0] for x in batch_sorted]
 
     output_sam_path = job.fileStore.getLocalTempFile()
     output_sam      = pysam.Samfile(output_sam_path, 'wh', template=sam)

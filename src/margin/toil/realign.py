@@ -146,7 +146,7 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
         ops += map(lambda op : (op.type, op.length), pA.operationList)
         if aR.query_alignment_end < len(aR.query_sequence):
             ops.append((4, len(aR.query_sequence) - aR.query_alignment_end))
-        if len(aR.cigar) > 1 and aR.cigar[-1][0] == 5: 
+        if len(aR.cigar) > 1 and aR.cigar[-1][0] == 5:
             # Add any hard clipped suffix
             ops.append(aR.cigar[-1])
 

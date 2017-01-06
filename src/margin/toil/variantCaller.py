@@ -44,7 +44,9 @@ def calculateAlignedPairsJobFunction(job, global_config, job_config, batch_numbe
 def callVariantsWithAlignedPairsJobFunction(job, config, input_samfile_fid, cPecan_alignedPairs_fids):
     BASES = "ACGT"
     sorted_alignedPair_fids = sortResultsByBatch(cPecan_alignedPairs_fids)
-    job.fileStore.logToMaster("CALLING VARIANTS got %s sets of aligned pairs" % len(cPecan_alignedPairs_fids))
+    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction]Got {} sets of aligned pairs "
+                              "".format(len(cPecan_alignedPairs_fids)))
+
     expectations_at_each_position = {}  # stores posterior probs
 
     for aP_fid in sorted_alignedPair_fids:
@@ -82,4 +84,6 @@ def callVariantsWithAlignedPairsJobFunction(job, config, input_samfile_fid, cPec
         calls     = set(map(lambda x : (x[0], x[1] + 1, x[2]), variant_calls))
         require(vcf_calls == calls, "[callVariantsWithAlignedPairsJobFunction]vcf write error")
 
+    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction]Exporting final VCF to "
+                              "{}".format(config["output_vcf_path"]))
     job.fileStore.exportFile(temp_vcf_out, config["output_vcf_path"])

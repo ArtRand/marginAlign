@@ -1,33 +1,39 @@
-import pysam, sys, os, collections, vcf, datetime
-from jobTree.src.bioio import fastaRead, system, fastaWrite, logger
-import numpy as np
-from margin.utils import *
+import vcf
+import datetime
 import math
-from cPecan.cPecanEm import Hmm
+
 from itertools import product
+#from bioio import fastaRead, system, fastaWrite, logger
+from margin.utils import *
+from margin.toil.hmm import Hmm
+
 try:
-    import cPickle 
+    import cPickle
 except ImportError:
     import pickle as cPickle
     
 BASES = "ACGT"
 
+"""
 def marginCallerTargetFn(target, samFile, referenceFastaFile, outputVcfFile,  options):
-    """Calculates the posterior probabilities of all the matches in between
+    //Calculates the posterior probabilities of all the matches in between
     each pairwise alignment of a read to the reference. The collates this 
     posterior probabilities and uses them to call SNVs.
-    """
+    
     target.setFollowOnTargetFn(paralleliseSamProcessingTargetFn, 
                                args=(samFile, referenceFastaFile, outputVcfFile, 
                                      posteriorProbabilityCalculationTargetFn, 
                                      variantCallSamFileTargetFn, options))
-   
+
+"""
+
+"""
 def posteriorProbabilityCalculationTargetFn(target, exonerateCigarStringFile, 
                 referenceSequenceName, referenceSequence, querySequenceFile, 
                 outputPosteriorProbsFile, options):
-    """Calculates the posterior probabilities of matches in a set of pairwise
+    //Calculates the posterior probabilities of matches in a set of pairwise
     alignments between a reference sequence and a set of reads. 
-    """
+    
     #Temporary files
     tempRefFile = os.path.join(target.getLocalTempDir(), "ref.fa")
     tempReadFile = os.path.join(target.getLocalTempDir(), "read.fa")
@@ -72,7 +78,7 @@ def posteriorProbabilityCalculationTargetFn(target, exonerateCigarStringFile,
     fileHandle = open(outputPosteriorProbsFile, 'w')
     cPickle.dump(expectationsOfBasesAtEachPosition, fileHandle, cPickle.HIGHEST_PROTOCOL)
     fileHandle.close() 
-
+"""
 def getProb(subMatrix, start, end):
     """Get the substitution probability.
     """
@@ -166,11 +172,11 @@ def vcfWrite(referenceFastaFile, refSequences, variantCalls, outputVcfFile):
                 vcfFile.write(Record)
                 vcfFile.write("\n")
     vcfFile.close()
-
+"""
 def variantCallSamFileTargetFn(target, samFile, referenceFastaFile, 
                             outputVcfFile, tempPosteriorProbFiles, options):
-    """Collates the posterior probabilities and calls SNVs for each reference base.
-    """
+    //Collates the posterior probabilities and calls SNVs for each reference base.
+    
     #Hash to store posterior probabilities in
     expectationsOfBasesAtEachPosition = {}
 
@@ -219,3 +225,4 @@ def variantCallSamFileTargetFn(target, samFile, referenceFastaFile,
     vcfCalls = vcfRead(outputVcfFile)
     calls = set(map(lambda x : (x[0], x[1]+1, x[2]), variantCalls))
     assert vcfCalls == calls
+"""

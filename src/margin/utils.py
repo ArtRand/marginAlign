@@ -1,13 +1,22 @@
-import pysam, sys, os, random
-from jobTree.src.bioio import fastaRead, fastqRead, \
-cigarReadFromString,PairwiseAlignment, fastaWrite, fastqWrite, logger, absSymPath, reverseComplementChar
+import pysam
+import random
+from sonLib.bioio import \
+    fastaRead,\
+    fastqRead,\
+    cigarReadFromString,\
+    PairwiseAlignment,\
+    fastaWrite,\
+    fastqWrite,\
+    logger,\
+    absSymPath,\
+    reverseComplementChar
 
-def pathToBaseNanoporeDir():
-    """Returns path to base directory "marginAlign"
-    """
-    import marginAlign
-    i = absSymPath(__file__)
-    return os.path.split(os.path.split(os.path.split(i)[0])[0])[0]
+#def pathToBaseNanoporeDir():
+#    """Returns path to base directory "marginAlign"
+#    """
+#    import marginAlign
+#    i = absSymPath(__file__)
+#    return os.path.split(os.path.split(os.path.split(i)[0])[0])[0]
 
 def getFirstNonClippedPositionInRead(alignedSegment, readSeq):
     """Gets the coordinate of the first non-clipped position in the read relative to the 
@@ -124,11 +133,10 @@ def combineSamFiles(baseSamFile, extraSamFiles, outputSamFile):
         sam.close()
     outputSam.close()
     
+"""
 def paralleliseSamProcessingTargetFn(target, samFile, 
                             referenceFastaFile, outputFile, 
                             childTargetFn, followOnTargetFn, options):
-    """Parallelise a computation over the alignments in a SAM file.
-    """
     #Load reference sequences
     refSequences = getFastaDictionary(referenceFastaFile) #Hash of names to sequences
     
@@ -178,7 +186,7 @@ def paralleliseSamProcessingTargetFn(target, samFile,
                                                        outputFile, tempOutputFiles, options))
     #Finish up
     sam.close()
-    
+"""
 ###The following code is used by the tests/plots
 
 def getFastqDictionary(fastqFile):
@@ -189,6 +197,7 @@ def getFastqDictionary(fastqFile):
     names = map(lambda x : x[0], namesAndSequences)
     assert len(names) == len(set(names)) #Check all the names are unique
     return dict(namesAndSequences) #Hash of names to sequences
+
 
 class AlignedPair:
     """Represents an aligned pair of positions using absolute reference/read coordinates.

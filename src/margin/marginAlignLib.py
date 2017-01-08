@@ -1,16 +1,18 @@
-import pysam, sys, os
-from jobTree.src.bioio import reverseComplement, fastaRead, system, fastaWrite, \
-cigarRead, logger, nameValue
+#import pysam
+#import sys
+#import os
+#from jobTree.src.bioio import reverseComplement, fastaRead, system, fastaWrite, \
+#cigarRead, logger, nameValue
 from margin.utils import *
-from cPecan import cPecanEm
-from cPecan.cPecanEm import Hmm, SYMBOL_NUMBER
+#from cPecan import cPecanEm
+#from cPecan.cPecanEm import Hmm, SYMBOL_NUMBER
 import numpy as np
 
-
+"""
 def learnModelFromSamFileTargetFn(target, samFile, readFastqFile, 
                                   referenceFastaFile, options):
-    """Does expectation maximisation on sam file to learn the hmm for the sam file.
-    """
+    //Does expectation maximisation on sam file to learn the hmm for the sam file.
+    
     #Get cigars and reads fasta file
     cigars = os.path.join(target.getGlobalTempDir(), "temp.cigar")
     fHCigars = open(cigars, 'w')
@@ -40,9 +42,10 @@ def learnModelFromSamFileTargetFn2(target, unnormalisedOutputModel, options):
     normaliseHmmByReferenceGCContent(hmm, 0.5)
     hmm.write(options.outputModel)
     
-toMatrix = lambda e : map(lambda i : e[SYMBOL_NUMBER*i:SYMBOL_NUMBER*(i+1)], 
-                          xrange(SYMBOL_NUMBER))
-fromMatrix = lambda e : reduce(lambda x, y : list(x) + list(y), e)
+    """
+#toMatrix = lambda e : map(lambda i : e[SYMBOL_NUMBER*i:SYMBOL_NUMBER*(i+1)], 
+#                          xrange(SYMBOL_NUMBER))
+#fromMatrix = lambda e : reduce(lambda x, y : list(x) + list(y), e)
     
 def normaliseHmmByReferenceGCContent(hmm, gcContent):
     """Normalise background emission frequencies to GC% given
@@ -71,12 +74,13 @@ def modifyHmmEmissionsByExpectedVariationRate(hmm, substitutionRate):
                      xrange(SYMBOL_NUMBER**2)))
     hmm.emissions[:SYMBOL_NUMBER**2] = fromMatrix(np.dot(toMatrix(hmm.emissions[:SYMBOL_NUMBER**2]), n))
 
+"""
 def realignSamFileTargetFn(target, samFile, outputSamFile, readFastqFile, 
                            referenceFastaFile, options, chainFn=chainFn):
-    """Chains and then realigns the resulting global alignments, using jobTree to 
+    //Chains and then realigns the resulting global alignments, using jobTree to 
     do it in parallel on a cluster.
     Optionally runs expectation maximisation.
-    """
+    
     #Optionally chain the sam file
     if not options.noChain:
         target.logToMaster("Going to chain sam file: %s" % samFile)
@@ -104,7 +108,8 @@ def realignSamFileTargetFn(target, samFile, outputSamFile, readFastqFile,
                                      referenceFastaFile, outputSamFile, 
                                      realignCigarTargetFn, realignSamFile3TargetFn,
                                      options))
-    
+"""
+"""
 def realignCigarTargetFn(target, exonerateCigarStringFile, referenceSequenceName, 
                          referenceSequence, querySequenceFile, 
                          outputCigarFile, options):
@@ -125,7 +130,8 @@ def realignCigarTargetFn(target, exonerateCigarStringFile, referenceSequenceName
         --splitMatrixBiggerThanThis=3000 %s --gapGamma=%s --matchGamma=%s >> %s" % \
                (exonerateCigarString[:-1], tempRefFile, tempReadFile, loadHmm, 
                 options.gapGamma, options.matchGamma, outputCigarFile))
-
+"""
+"""
 def realignSamFile3TargetFn(target, samFile, referenceFastaFile, 
                             outputSamFile, tempCigarFiles, options):
     #Setup input and output sam files
@@ -177,3 +183,4 @@ def realignSamFile3TargetFn(target, samFile, referenceFastaFile,
     
     target.logToMaster("Realigned sam file: %s to create output sam file: %s" % \
                        (samFile, outputSamFile))
+"""

@@ -1,2 +1,0 @@
-#!/bin/bash
-$(dirname $0)/src/executionScript.sh $(dirname $0)/src/margin/marginAlign.py $@

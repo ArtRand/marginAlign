@@ -57,25 +57,6 @@ def cPecanRealignJobFunction(job, global_config, job_config, batch_number,
     # type: (toil.job.Job, dict<string, parameters>, dict<string, string>)
     """Runs Docker-ized cPecan HMM
     """
-    # uid to be super sure we don't have any file collisions
-    #uid = uuid.uuid4().hex
-
-    # need a local directory to pass to docker
-    #workdir = job.fileStore.getLocalTempDir()
-    # need the hmm file for cPecan and a local file for the output alignments
-    #local_hmm    = LocalFile(workdir=workdir, filename="hmm.{}.txt".format(uid))
-    #local_output = LocalFile(workdir=workdir, filename="cPecan_out.{}.txt".format(uid))
-
-    # copy the hmm file from the FileStore to local workdir
-    #if global_config["EM"]:  # if we did EM, use the trained model
-    #    assert(global_config["output_model"] is not None)  # double check
-    #    hmm_model_fid = job.fileStore.importFile(global_config["output_model"])
-    #    assert(hmm_model_fid is not None), "[cPecanRealignJobFunction]ERROR importing trained model"
-    #else:
-    #    hmm_model_fid = global_config["input_hmm_FileStoreID"]
-    #    assert(hmm_model_fid is not None), "[cPecanRealignJobFunction]No input model and no EM"
-    # read the HMM to the local file location
-    #job.fileStore.readGlobalFile(fileStoreID=hmm_model_fid, userPath=local_hmm.fullpathGetter())
     workdir, local_hmm, local_output, hmm_model_fid, local_input_obj = setupLocalFiles(job, global_config)
     if DEBUG:
         job.fileStore.logToMaster("[cPecanRealignJobFunction]Batch {batch} using HMM from {fid} "

@@ -11,12 +11,6 @@ from sonLib.bioio import \
     absSymPath,\
     reverseComplementChar
 
-#def pathToBaseNanoporeDir():
-#    """Returns path to base directory "marginAlign"
-#    """
-#    import marginAlign
-#    i = absSymPath(__file__)
-#    return os.path.split(os.path.split(os.path.split(i)[0])[0])[0]
 
 def getFirstNonClippedPositionInRead(alignedSegment, readSeq):
     """Gets the coordinate of the first non-clipped position in the read relative to the 
@@ -132,63 +126,8 @@ def combineSamFiles(baseSamFile, extraSamFiles, outputSamFile):
             outputSam.write(line)
         sam.close()
     outputSam.close()
-    
-"""
-def paralleliseSamProcessingTargetFn(target, samFile, 
-                            referenceFastaFile, outputFile, 
-                            childTargetFn, followOnTargetFn, options):
-    #Load reference sequences
-    refSequences = getFastaDictionary(referenceFastaFile) #Hash of names to sequences
-    
-    tempOutputFiles = []
-    childCount, totalSeqLength = 0, sys.maxint
-    tempExonerateFile, tempQueryFile = None, None 
-    tempExonerateFileHandle, tempQueryFileHandle = None, None
-    refName = None
-    
-    #Read through the SAM file
-    sam = pysam.Samfile(samFile, "r" )  
-    
-    def makeChild():
-        #Add a child target to do the processing of a subset of the lines.
-        if tempExonerateFile != None:
-            tempExonerateFileHandle.close()
-            tempQueryFileHandle.close()
-            #Temporary cigar file to store the realignment
-            tempOutputFiles.append(os.path.join(target.getGlobalTempDir(), 
-                                               "tempOutput_%i.txt" % childCount))
-            target.addChildTargetFn(childTargetFn,
-                                    args=(tempExonerateFile, refName, 
-                                          refSequences[refName], 
-                                          tempQueryFile, tempOutputFiles[-1], options))
-    
-    for aR, index in zip(samIterator(sam), xrange(sys.maxint)): 
-        #Iterate on the sam lines realigning them in parallel
-        if totalSeqLength > options.maxAlignmentLengthPerJob or \
-        refName != sam.getrname(aR.reference_id):
-            makeChild()
-            tempExonerateFile = os.path.join(target.getGlobalTempDir(), 
-                                             "tempExonerateCigar_%s.cig" % childCount)
-            tempExonerateFileHandle = open(tempExonerateFile, 'w')
-            tempQueryFile = os.path.join(target.getGlobalTempDir(), 
-                                         "tempQueryCigar_%s.fa" % childCount)
-            tempQueryFileHandle = open(tempQueryFile, 'w')
-            childCount += 1
-            totalSeqLength = 0
-        
-        tempExonerateFileHandle.write(getExonerateCigarFormatString(aR, sam) + "\n")
-        fastaWrite(tempQueryFileHandle, aR.query_name, aR.query_sequence) #This is the query sequence, including soft clipped bases, but excluding hard clip bases
-        totalSeqLength += len(aR.query_sequence)
-        refName = sam.getrname(aR.reference_id)
-            
-    makeChild()
-    target.setFollowOnTargetFn(followOnTargetFn, args=(samFile, referenceFastaFile, \
-                                                       outputFile, tempOutputFiles, options))
-    #Finish up
-    sam.close()
-"""
-###The following code is used by the tests/plots
 
+# The following code is used by the tests/plots
 def getFastqDictionary(fastqFile):
     """Returns a dictionary of the first words of fastq headers to their corresponding 
     fastq sequence

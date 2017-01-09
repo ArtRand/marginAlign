@@ -5,8 +5,11 @@ import os
 import pysam
 import uuid
 import cPickle
+import urlparse
 import toil_lib.programs as tlp
 from toil_lib import require
+from toil_lib.urls import s3am_upload
+from toil_lib.files import copy_files
 from localFileManager import LocalFile
 from margin.utils import samIterator, getExonerateCigarFormatString, getFastaDictionary
 from sonLib.bioio import cigarRead
@@ -111,11 +114,9 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
         return
     # sort the cPecan results by batch, then discard the batch number. this is so they 'line up' with the sam
     sorted_cPecan_fids = sortResultsByBatch(cPecan_cigar_fileIds)
-    #batch_sorted       = sorted(cPecan_cigar_fileIds, key=lambda tup: tup[1])
-    #sorted_cPecan_fids = [x[0] for x in batch_sorted]
-
-    output_sam_path = job.fileStore.getLocalTempFile()
-    output_sam      = pysam.Samfile(output_sam_path, 'wh', template=sam)
+    workdir            = job.fileStore.getLocalTempDir()
+    output_sam_file    = LocalFile(workdir=workdir, filename="realigned.sam")
+    output_sam_handle  = pysam.Samfile(output_sam_file.fullpathGetter(), 'wh', template=sam)
 
     for aR, pA in zip(samIterator(sam), cigar_iterator()):
         ops = []
@@ -140,14 +141,27 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
 
         aR.cigar = tuple(ops)
         # Write out
-        output_sam.write(aR)
+        output_sam_handle.write(aR)
 
-    if DEBUG:
-        job.fileStore.logToMaster("[rebuildSamJobFunction]Finished rebuilding SAM, exporting to"
-                                  "{}".format(config["output_sam_path"]))
     sam.close()
-    output_sam.close()
-    job.fileStore.exportFile(output_sam_path, config["output_sam_path"])
+    output_sam_handle.close()
+
+    require(os.path.exists(output_sam_file.fullpathGetter()), "[rebuildSamJobFunction]out_sam_path does not exist at "
+                                             "{}".format(output_sam_file.fullpathGetter()))
+
+    if urlparse.urlparse(config["output_sam_path"]).scheme == "s3":
+        if config["debug"]:
+            job.fileStore.logToMaster("[exportOutfileJobFunction]Uploading with S3AM..\n"
+                                      "[exportOutfileJobFunction]Uploading {f} to {dest}"
+                                      "".format(f=output_sam_file.fullpathGetter(), dest=config["output_sam_path"]))
+        s3am_upload(fpath=output_sam_file.fullpathGetter(), s3_dir=config["output_sam_path"], num_cores=job.cores)
+    else:
+        destination_dir = urlparse.urlparse(config["output_sam_path"]).path
+        if config["debug"]:
+            job.fileStore.logToMaster("[exportOutfileJobFunction]copying sam {f} to output {out}"
+                                      "".format(f=output_sam_file.fullpathGetter(), out=destination_dir))
+
+        copy_files(file_paths=[output_sam_file.fullpathGetter()], output_dir=destination_dir)
 
 
 def shardSamJobFunction(job, config, input_samfile_fid, batch_job_function, followOn_job_function):

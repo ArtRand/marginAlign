@@ -194,6 +194,7 @@ def chainSamFile(samFile, outputSamFile, readFastqFile, referenceFastaFile,
             for refID in alignmentsHash[readName].keys():
                 alignedSegments = alignmentsHash[readName][refID]
                 refSeq = refSequences[sam.getrname(refID)]
+                # XXX could make this a child function instead and allow the chaining to be done in ||
                 chainedAlignedSegments.append(mergeChainedAlignedSegments(chainFn(alignedSegments,
                                               refSeq, readSeq), refSeq, readSeq))
             alignmentsHash.pop(readName)

@@ -6,14 +6,14 @@ import sys
 import pysam
 import random
 import uuid
-import toil_lib.programs as tlp
+from toil_lib.programs import docker_call
+from toil_lib import require
 from sonLib.bioio import fastaWrite
-from localFileManager import LocalFileManager, LocalFile
+from localFileManager import LocalFileManager, LocalFile, deliverOutput
 from hmm import Hmm, SYMBOL_NUMBER
 from margin.utils import getExonerateCigarFormatString, samIterator
 
 DOCKER_DIR = "/data/"
-DEBUG = True
 
 
 def performBaumWelchOnSamJobFunction(job, config, input_samfile_fid):
@@ -156,7 +156,7 @@ def expectationMaximisationJobFunction(job, config, working_model_fid, batch_fid
     else:
         job.fileStore.logToMaster("[expectationMaximisationJobFunction]Performed %s iterations" % iteration)
         # get local copy of the working_model
-        if DEBUG:
+        if config["debug"]:
             job.fileStore.logToMaster("[expectationMaximisationJobFunction]Downloading trained model"
                                       " with FileStoreID {}".format(working_model_fid))
         trained_model_path = job.fileStore.readGlobalFile(working_model_fid, mutable=True)
@@ -168,7 +168,7 @@ def expectationMaximisationJobFunction(job, config, working_model_fid, batch_fid
 
         # upload the final, trained but unnormalized, model to the FileStore
         trained_model_fid = job.fileStore.writeGlobalFile(trained_model_path)
-        if DEBUG:
+        if config["debug"]:
             job.fileStore.logToMaster("[expectationMaximisationJobFunction]Wrote final trained model to "
                                       "{}".format(trained_model_fid))
         job.fileStore.deleteGlobalFile(working_model_fid)
@@ -207,10 +207,10 @@ def getExpectationsJobFunction(job, batch_fid, config, working_model_fid,
     expectations_arg = "--expectations={}".format(DOCKER_DIR + expectations_file.filenameGetter())
     cPecan_params    = [em_arg, aln_arg, reference_arg, query_arg, hmm_arg, expectations_arg]
 
-    tlp.docker_call(tool=cPecan_image,
-                    parameters=cPecan_params,
-                    work_dir=local_files.workDir(),
-                    outfile=sys.stdout)
+    docker_call(tool=cPecan_image,
+                parameters=cPecan_params,
+                work_dir=local_files.workDir(),
+                outfile=sys.stdout)
 
     # upload the file to the jobstore
     assert(os.path.exists(expectations_file.fullpathGetter())), "[getExpectationsJobFunction]Didn't find "\
@@ -225,7 +225,7 @@ def maximizationJobFunction(job, config, expectations_fids, working_model_fid, a
         job.fileStore.logToMaster("[maximizationJobFunction]Didn't get any expectations FileStoreIDs")
         exit(1)
 
-    if DEBUG:
+    if config["debug"]:
         job.fileStore.logToMaster("[maximizationJobFunction]Got %s expectations files" % len(expectations_fids))
         job.fileStore.logToMaster("[maximizationJobFunction]Based HMM on %s" % expectations_fids[0])
 
@@ -237,7 +237,7 @@ def maximizationJobFunction(job, config, expectations_fids, working_model_fid, a
         job.fileStore.logToMaster("[maximizationJobFunction]Added %s" % fid)
     hmm.normalise()
 
-    if DEBUG:
+    if config["debug"]:
         job.fileStore.logToMaster(
             "[maximizationJobFunction]On %i iteration got likelihood: %s for model-type: %s, model-file %s"
             % (iteration, hmm.likelihood, hmm.modelType, working_model_fid))
@@ -297,11 +297,11 @@ def normalizeModelJobFunction(job, config):
     assert("unnormalized_model_FileStoreID" in config.keys()),\
         "[normalizeModelJobFunction]unnormalized model FileStoreID not in config"
 
-    if DEBUG:
+    if config["debug"]:
         job.fileStore.logToMaster("[normalizeModelJobFunction]normalizing model with FileStoreID %s"
                                   % config["unnormalized_model_FileStoreID"])
 
-    toMatrix = lambda e : map(lambda i : e[SYMBOL_NUMBER * i:SYMBOL_NUMBER * (i + 1)], xrange(SYMBOL_NUMBER))
+    toMatrix   = lambda e : map(lambda i : e[SYMBOL_NUMBER * i:SYMBOL_NUMBER * (i + 1)], xrange(SYMBOL_NUMBER))
     fromMatrix = lambda e : reduce(lambda x, y : list(x) + list(y), e)
 
     # get copy of unnormalized model
@@ -310,14 +310,13 @@ def normalizeModelJobFunction(job, config):
     hmm = Hmm.loadHmm(unnormalized_model_path)
     setHmmIndelEmissionsToBeFlat()
     normaliseHmmByReferenceGCContent(config["gc_content"])
-    normalized_model = job.fileStore.getLocalTempFileName()
-    hmm.write(normalized_model)
-    assert(os.path.exists(normalized_model))
-    normalized_model_fid = job.fileStore.writeGlobalFile(normalized_model)
 
-    if DEBUG:
-        job.fileStore.logToMaster("[normalizeModelJobFunction]Exporting model from {fid} to {out}"
-                                  "".format(fid=normalized_model_fid, out=config["output_model"]))
+    workdir = job.fileStore.getLocalTempDir()
+    normalized_model = LocalFile(workdir=workdir, filename="{}_trainedmodel.hmm".format(config["sample_label"]))
+    hmm.write(normalized_model.fullpathGetter())
+    require(os.path.exists(normalized_model.fullpathGetter()), 
+            "[normalizeModelJobFunction]Didn't write VCF locally tried to write to {}"
+            "".format(normalized_model.fullpathGetter()))
 
-    job.fileStore.exportFile(normalized_model_fid, config["output_model"])
+    deliverOutput(job, normalized_model, config["output_dir"])
     return

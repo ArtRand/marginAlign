@@ -98,7 +98,8 @@ class LocalFile(object):
         return self.workdir
 
 
-def deliverOutput(parent_job, deliverable_file, destination, retry_count=3, s3am_image="quay.io/ucsc_cgl/s3am"):
+def deliverOutput(parent_job, deliverable_file, destination, retry_count=3,
+                  s3am_image="quay.io/ucsc_cgl/s3am", overwrite=True):
     # type (toil.job.Job, LocalFile, URL)
     """Run S3AM in a container to deliver files to S3 or copy files to a local file
     """
@@ -109,6 +110,9 @@ def deliverOutput(parent_job, deliverable_file, destination, retry_count=3, s3am
         parent_job.fileStore.logToMaster("[deliverOutput]Using S3AM docker...")
         source_arg = DOCKER_DIR + deliverable_file.filenameGetter()
         s3am_args  = ["upload", source_arg, destination]
+        if overwrite:
+            s3am_args.append("--exists=overwrite")
+
         for i in xrange(retry_count):
             try:
                 docker_call(tool=s3am_image, parameters=s3am_args, work_dir=(deliverable_file.workdirGetter() + "/"))

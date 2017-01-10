@@ -8,6 +8,7 @@ from margin.toil.realign import setupLocalFiles, DOCKER_DIR, sortResultsByBatch
 from margin.marginCallerLib import \
     loadHmmSubstitutionMatrix, getNullSubstitutionMatrix, calcBasePosteriorProbs, vcfWrite, vcfRead
 from margin.utils import getFastaDictionary
+from localFileManager import LocalFile, deliverOutput
 
 
 def calculateAlignedPairsJobFunction(job, global_config, job_config, batch_number,
@@ -44,8 +45,10 @@ def calculateAlignedPairsJobFunction(job, global_config, job_config, batch_numbe
 def callVariantsWithAlignedPairsJobFunction(job, config, input_samfile_fid, cPecan_alignedPairs_fids):
     BASES = "ACGT"
     sorted_alignedPair_fids = sortResultsByBatch(cPecan_alignedPairs_fids)
-    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction]Got {} sets of aligned pairs "
-                              "".format(len(cPecan_alignedPairs_fids)))
+
+    if config["debug"]:
+        job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction]Got {} sets of aligned pairs "
+                                  "".format(len(cPecan_alignedPairs_fids)))
 
     expectations_at_each_position = {}  # stores posterior probs
 
@@ -63,6 +66,9 @@ def callVariantsWithAlignedPairsJobFunction(job, config, input_samfile_fid, cPec
     contig_seqs   = getFastaDictionary(job.fileStore.readGlobalFile(config["reference_FileStoreID"]))
     error_model   = loadHmmSubstitutionMatrix(job.fileStore.readGlobalFile(config["error_model_FileStoreID"]))
     evo_sub_mat   = getNullSubstitutionMatrix()
+    workdir       = job.fileStore.getLocalTempDir()
+    # XXX need to percolate through a label for the vcf
+    output_vcf    = LocalFile(workdir=workdir, filename="{}_outvcf.vcf".format(config["sample_label"]))
 
     for contig, position in expectations_at_each_position:
         ref_base     = contig_seqs[contig][position]
@@ -75,15 +81,12 @@ def callVariantsWithAlignedPairsJobFunction(job, config, input_samfile_fid, cPec
             if b != ref_base and posterior_probs[b] >= config["variant_threshold"]:
                 variant_calls.append((contig, position, b, posterior_probs[b]))
 
-    temp_vcf_out = job.fileStore.getLocalTempFileName()
-    vcfWrite(config["ref"], contig_seqs, variant_calls, temp_vcf_out)
-    require(os.path.exists(temp_vcf_out), "[callVariantsWithAlignedPairsJobFunction]Did not make temp VCF file")
+    vcfWrite(config["ref"], contig_seqs, variant_calls, output_vcf.fullpathGetter())
+    require(os.path.exists(output_vcf.fullpathGetter()), "[callVariantsWithAlignedPairsJobFunction]Did not make temp VCF file")
 
     if config["debug"]:
-        vcf_calls = vcfRead(temp_vcf_out)
+        vcf_calls = vcfRead(output_vcf.fullpathGetter())
         calls     = set(map(lambda x : (x[0], x[1] + 1, x[2]), variant_calls))
         require(vcf_calls == calls, "[callVariantsWithAlignedPairsJobFunction]vcf write error")
 
-    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction]Exporting final VCF to "
-                              "{}".format(config["output_vcf_path"]))
-    job.fileStore.exportFile(temp_vcf_out, config["output_vcf_path"])
+    deliverOutput(job, output_vcf, config["output_dir"])

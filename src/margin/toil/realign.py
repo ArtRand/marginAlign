@@ -5,21 +5,22 @@ import os
 import pysam
 import uuid
 import cPickle
-import urlparse
 import toil_lib.programs as tlp
 from toil_lib import require
-from toil_lib.urls import s3am_upload
-from toil_lib.files import copy_files
 from localFileManager import LocalFile, deliverOutput
 from margin.utils import samIterator, getExonerateCigarFormatString, getFastaDictionary
 from sonLib.bioio import cigarRead
 
-DEBUG = True
 DOCKER_DIR = "/data/"
 
 
 # TODO move this function to localFileManager
 def setupLocalFiles(parent_job, global_config):
+    def get_model_url():
+        model_url = global_config["output_dir"] + "{}_trainedmodel.hmm".format(global_config["sample_label"])
+        parent_job.fileStore.logToMaster("[get_model_url]Getting model from {}".format(model_url))
+        return model_url
+
     # uid to be super sure we don't have any file collisions
     uid = uuid.uuid4().hex
 
@@ -31,8 +32,7 @@ def setupLocalFiles(parent_job, global_config):
 
     # copy the hmm file from the FileStore to local workdir
     if global_config["EM"]:  # if we did EM, use the trained model
-        assert(global_config["output_model"] is not None)  # double check
-        hmm_model_fid = parent_job.fileStore.importFile(global_config["output_model"])
+        hmm_model_fid = parent_job.fileStore.importFile(get_model_url())
         assert(hmm_model_fid is not None), "[cPecanRealignJobFunction]ERROR importing trained model"
     else:
         hmm_model_fid = global_config["input_hmm_FileStoreID"]
@@ -62,16 +62,14 @@ def cPecanRealignJobFunction(job, global_config, job_config, batch_number,
     """Runs Docker-ized cPecan HMM
     """
     workdir, local_hmm, local_output, hmm_model_fid, local_input_obj = setupLocalFiles(job, global_config)
-    if DEBUG:
+    if global_config["debug"]:
         job.fileStore.logToMaster("[cPecanRealignJobFunction]Batch {batch} using HMM from {fid} "
                                   "and EM is {em}".format(batch=batch_number,
                                                           fid=hmm_model_fid,
                                                           em=global_config["EM"]))
 
-
     # pickle the job_config, that contains the reference sequence, the query sequences, and 
     # the pairwise alignments in exonerate format
-    #local_input_obj = LocalFile(workdir=workdir, filename="cPecanInput.{}.pkl".format(uid))
     with open(local_input_obj.fullpathGetter(), "w") as fH:
         cPickle.dump(job_config, fH)
 
@@ -90,7 +88,7 @@ def cPecanRealignJobFunction(job, global_config, job_config, batch_number,
 
 
 def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
-    if DEBUG:
+    if config["debug"]:
         job.fileStore.logToMaster("[rebuildSamJobFunction]Rebuild chained SAM {chained} with alignments "
                                   "from {cPecan_fids}"
                                   "".format(chained=input_samfile_fid,
@@ -116,7 +114,7 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
     # sort the cPecan results by batch, then discard the batch number. this is so they 'line up' with the sam
     sorted_cPecan_fids = sortResultsByBatch(cPecan_cigar_fileIds)
     workdir            = job.fileStore.getLocalTempDir()
-    output_sam_file    = LocalFile(workdir=workdir, filename="realigned.sam")
+    output_sam_file    = LocalFile(workdir=workdir, filename="{}_realigned.sam".format(config["sample_label"]))
     output_sam_handle  = pysam.Samfile(output_sam_file.fullpathGetter(), 'wh', template=sam)
 
     for aR, pA in zip(samIterator(sam), cigar_iterator()):
@@ -149,7 +147,8 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
 
     require(os.path.exists(output_sam_file.fullpathGetter()), "[rebuildSamJobFunction]out_sam_path does not exist at "
                                                               "{}".format(output_sam_file.fullpathGetter()))
-    deliverOutput(job, output_sam_file, config["output_sam_path"])
+    # TODO convert to BAM before delivery, make childJobFunction
+    deliverOutput(job, output_sam_file, config["output_dir"])
 
 
 def shardSamJobFunction(job, config, input_samfile_fid, batch_job_function, followOn_job_function):
@@ -173,7 +172,7 @@ def shardSamJobFunction(job, config, input_samfile_fid, batch_job_function, foll
         # type: (list<string>)
         # result_fids should be updated with the FileStoreIDs with the cPecan results
         if exonerate_cigar_batch is not None:
-            if DEBUG:
+            if config["debug"]:
                 job.fileStore.logToMaster("[send_alignment_batch]Starting batch {batch} for contig {contig} "
                                           "".format(batch=batch_number, contig=contig_name))
 

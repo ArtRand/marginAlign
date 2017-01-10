@@ -10,7 +10,7 @@ import toil_lib.programs as tlp
 from toil_lib import require
 from toil_lib.urls import s3am_upload
 from toil_lib.files import copy_files
-from localFileManager import LocalFile
+from localFileManager import LocalFile, deliverOutput
 from margin.utils import samIterator, getExonerateCigarFormatString, getFastaDictionary
 from sonLib.bioio import cigarRead
 
@@ -18,6 +18,7 @@ DEBUG = True
 DOCKER_DIR = "/data/"
 
 
+# TODO move this function to localFileManager
 def setupLocalFiles(parent_job, global_config):
     # uid to be super sure we don't have any file collisions
     uid = uuid.uuid4().hex
@@ -147,21 +148,8 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
     output_sam_handle.close()
 
     require(os.path.exists(output_sam_file.fullpathGetter()), "[rebuildSamJobFunction]out_sam_path does not exist at "
-                                             "{}".format(output_sam_file.fullpathGetter()))
-
-    if urlparse.urlparse(config["output_sam_path"]).scheme == "s3":
-        if config["debug"]:
-            job.fileStore.logToMaster("[exportOutfileJobFunction]Uploading with S3AM..\n"
-                                      "[exportOutfileJobFunction]Uploading {f} to {dest}"
-                                      "".format(f=output_sam_file.fullpathGetter(), dest=config["output_sam_path"]))
-        s3am_upload(fpath=output_sam_file.fullpathGetter(), s3_dir=config["output_sam_path"], num_cores=job.cores)
-    else:
-        destination_dir = urlparse.urlparse(config["output_sam_path"]).path
-        if config["debug"]:
-            job.fileStore.logToMaster("[exportOutfileJobFunction]copying sam {f} to output {out}"
-                                      "".format(f=output_sam_file.fullpathGetter(), out=destination_dir))
-
-        copy_files(file_paths=[output_sam_file.fullpathGetter()], output_dir=destination_dir)
+                                                              "{}".format(output_sam_file.fullpathGetter()))
+    deliverOutput(job, output_sam_file, config["output_sam_path"])
 
 
 def shardSamJobFunction(job, config, input_samfile_fid, batch_job_function, followOn_job_function):

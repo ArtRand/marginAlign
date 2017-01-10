@@ -3,9 +3,14 @@ import re
 import os
 import urlparse
 import uuid
+import subprocess
+from toil_lib import require
+from toil_lib.files import copy_files
+from toil_lib.programs import docker_call
+
 
 DEBUG = True
-
+DOCKER_DIR = "/data/"
 
 def removeTempSuffix(filename):
     # type: (string)
@@ -92,3 +97,33 @@ class LocalFile(object):
     def workdirGetter(self):
         return self.workdir
 
+
+def deliverOutput(parent_job, deliverable_file, destination, retry_count=3, s3am_image="quay.io/ucsc_cgl/s3am"):
+    # type (toil.job.Job, LocalFile, URL)
+    """Run S3AM in a container to deliver files to S3 or copy files to a local file
+    """
+    require(os.path.exists(deliverable_file.fullpathGetter()), "[deliverOutput]Didn't find file {here}"
+                                                               "".format(here=deliverable_file))
+
+    if urlparse.urlparse(destination).scheme == "s3":
+        parent_job.fileStore.logToMaster("[deliverOutput]Using S3AM docker...")
+        source_arg = DOCKER_DIR + deliverable_file.filenameGetter()
+        s3am_args  = ["upload", source_arg, destination]
+        for i in xrange(retry_count):
+            try:
+                docker_call(tool=s3am_image, parameters=s3am_args, work_dir=(deliverable_file.workdirGetter() + "/"))
+            except subprocess.CalledProcessError:
+                parent_job.fileStore.logToMaster("[deliverOutput]S3AM failed with args {}".format(s3am_args.__str__()))
+            else:
+                parent_job.fileStore.logToMaster("[deliverOutput]S3AM succeeded")
+                return
+        raise RuntimeError("[deliverOutput]Delivering {deliverable} to {destination} failed after {n} attempts"
+                           "".format(deliverable=deliverable_file, destination=destination, n=retry_count))
+    else:
+        require(urlparse.urlparse(destination).scheme == "file", "[deliverOutput]Illegal output URL {}"
+                                                         "".format(destination))
+        destination_dir = urlparse.urlparse(destination).path
+        parent_job.fileStore.logToMaster("[deliverOutput]copying sam {f} to output {out}"
+                                         "".format(f=deliverable_file.fullpathGetter(), out=destination_dir))
+        copy_files(file_paths=[deliverable_file.fullpathGetter()], output_dir=destination_dir)
+        return

@@ -35,6 +35,8 @@ def setupLocalFiles(parent_job, global_config):
         hmm_model_fid = parent_job.fileStore.importFile(get_model_url())
         assert(hmm_model_fid is not None), "[cPecanRealignJobFunction]ERROR importing trained model"
     else:
+        require(global_config["input_hmm_FileStoreID"],
+                "[setupLocalFiles]Need to provide a HMM for alignment or perform alignment/EM")
         hmm_model_fid = global_config["input_hmm_FileStoreID"]
         assert(hmm_model_fid is not None), "[cPecanRealignJobFunction]No input model and no EM"
     # read the HMM to the local file location
@@ -51,9 +53,9 @@ def sortResultsByBatch(cPecan_result_fids):
     return sorted_cPecan_fids
 
 
-def realignSamFileJobFunction(job, config, input_samfile_fid):
+def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
     job.addFollowOnJobFn(shardSamJobFunction, config, input_samfile_fid,
-                         cPecanRealignJobFunction, rebuildSamJobFunction)
+                         output_label, cPecanRealignJobFunction, rebuildSamJobFunction)
 
 
 def cPecanRealignJobFunction(job, global_config, job_config, batch_number,
@@ -87,7 +89,7 @@ def cPecanRealignJobFunction(job, global_config, job_config, batch_number,
     return result_fid
 
 
-def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
+def rebuildSamJobFunction(job, config, input_samfile_fid, output_label, cPecan_cigar_fileIds):
     if config["debug"]:
         job.fileStore.logToMaster("[rebuildSamJobFunction]Rebuild chained SAM {chained} with alignments "
                                   "from {cPecan_fids}"
@@ -114,7 +116,9 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
     # sort the cPecan results by batch, then discard the batch number. this is so they 'line up' with the sam
     sorted_cPecan_fids = sortResultsByBatch(cPecan_cigar_fileIds)
     workdir            = job.fileStore.getLocalTempDir()
-    output_sam_file    = LocalFile(workdir=workdir, filename="{}_realigned.sam".format(config["sample_label"]))
+    output_sam_file    = LocalFile(workdir=workdir,
+                                   filename="{sample}_{out_label}.sam".format(sample=config["sample_label"],
+                                                                              out_label=output_label))
     output_sam_handle  = pysam.Samfile(output_sam_file.fullpathGetter(), 'wh', template=sam)
 
     for aR, pA in zip(samIterator(sam), cigar_iterator()):
@@ -151,14 +155,14 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
     deliverOutput(job, output_sam_file, config["output_dir"])
 
 
-def shardSamJobFunction(job, config, input_samfile_fid, batch_job_function, followOn_job_function):
-    # type: (toil.job.Job, dict<string, string>, string,
+def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_function, followOn_job_function):
+    # type: (toil.job.Job, dict<string, string>, string, string,
     #        JobFunctionWrappingJob, JobFunctionWrappingJob)
     # get the sam file locally
     local_sam_path  = job.fileStore.readGlobalFile(input_samfile_fid)
     reference_fasta = job.fileStore.readGlobalFile(config["reference_FileStoreID"])
     require(os.path.exists(reference_fasta),
-            "[realignSamFile]ERROR was not able to download reference from FileStore")
+            "[shardSamJobFunction]ERROR was not able to download reference from FileStore")
     reference_map = getFastaDictionary(reference_fasta)
 
     try:
@@ -227,6 +231,6 @@ def shardSamJobFunction(job, config, input_samfile_fid, batch_job_function, foll
 
     send_alignment_batch(result_fids=cPecan_results, batch_number=batch_number)
 
-    job.addFollowOnJobFn(followOn_job_function, config, input_samfile_fid, cPecan_results)
+    job.addFollowOnJobFn(followOn_job_function, config, input_samfile_fid, output_label, cPecan_results)
 
     sam.close()

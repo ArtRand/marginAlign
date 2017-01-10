@@ -42,7 +42,7 @@ def calculateAlignedPairsJobFunction(job, global_config, job_config, batch_numbe
     return result_fid
 
 
-def callVariantsWithAlignedPairsJobFunction(job, config, input_samfile_fid, cPecan_alignedPairs_fids):
+def callVariantsWithAlignedPairsJobFunction(job, config, input_samfile_fid, output_label, cPecan_alignedPairs_fids):
     BASES = "ACGT"
     sorted_alignedPair_fids = sortResultsByBatch(cPecan_alignedPairs_fids)
 
@@ -67,8 +67,8 @@ def callVariantsWithAlignedPairsJobFunction(job, config, input_samfile_fid, cPec
     error_model   = loadHmmSubstitutionMatrix(job.fileStore.readGlobalFile(config["error_model_FileStoreID"]))
     evo_sub_mat   = getNullSubstitutionMatrix()
     workdir       = job.fileStore.getLocalTempDir()
-    # XXX need to percolate through a label for the vcf
-    output_vcf    = LocalFile(workdir=workdir, filename="{}_outvcf.vcf".format(config["sample_label"]))
+    output_vcf    = LocalFile(workdir=workdir,
+                              filename="{sample}_{out_label}.vcf".format(sample=config["sample_label"], out_label=output_label))
 
     for contig, position in expectations_at_each_position:
         ref_base     = contig_seqs[contig][position]

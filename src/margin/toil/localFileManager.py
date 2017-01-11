@@ -4,6 +4,7 @@ import os
 import urlparse
 import uuid
 import subprocess
+import shutil
 from toil_lib import require
 from toil_lib.files import copy_files
 from toil_lib.programs import docker_call
@@ -11,6 +12,7 @@ from toil_lib.programs import docker_call
 
 DEBUG = True
 DOCKER_DIR = "/data/"
+
 
 def removeTempSuffix(filename):
     # type: (string)
@@ -96,6 +98,49 @@ class LocalFile(object):
 
     def workdirGetter(self):
         return self.workdir
+
+
+def urlDownload(parent_job, source_url, destination_file, retry_count=3, s3am_image="quay.io/ucsc_cgl/s3am"):
+    # (string, string, LocalFile) -> string
+    def check_destination():
+        require(os.path.exists(destination_file.fullpathGetter()),
+                "[urlDownload]After download, couldn't find file here"
+                "{}".format(destination_file.fullpathGetter()))
+
+    if urlparse.urlparse(source_url).scheme == "s3":  # use S3AM
+        destination_arg = DOCKER_DIR + destination_file.filenameGetter()
+        s3am_args = ["download", source_url, destination_arg]
+        for i in xrange(retry_count):
+            try:
+                parent_job.fileStore.logToMaster("[urlDownload]Using S3AM to download {source} to {dest}"
+                                                 "".format(source=source_url, dest=destination_file.fullpathGetter()))
+                docker_call(tool=s3am_image, parameters=s3am_args, work_dir=(destination_file.workdirGetter() + "/"))
+            except subprocess.CalledProcessError:
+                parent_job.fileStore.logToMaster("[urlDownload]S3AM failed with args {}".format(s3am_args.__str__()))
+            else:
+                check_destination()
+                parent_job.fileStore.logToMaster("[urlDownload]S3AM download succeeded")
+                return
+        raise RuntimeError("[urlDownload]Downloadig {source} to {destination} failed after {n} attempts"
+                           "".format(source=source_url, destination=destination_file.fullpathGetter(), n=retry_count))
+    elif urlparse.urlparse(source_url).scheme == "file":
+        shutil.copy(urlparse.urlparse(source_url).path, destination_file.fullpathGetter())
+        check_destination()
+        return
+
+
+def urlDownlodJobFunction(job, source_url):
+    uid              = uuid.uuid4().hex
+    workdir          = job.fileStore.getLocalTempDir()
+    destination_file = LocalFile(workdir=workdir, filename="{}.tmp".format(uid))
+    urlDownload(job, source_url, destination_file)
+    require(os.path.exists(destination_file.fullpathGetter()), 
+            "[urlDownlodJobFunction]Problem downloading {src} to {dest}".format(src=source_url,
+                                                                                dest=destination_file.fullpathGetter()))
+    filestore_id = job.fileStore.writeGlobalFile(destination_file.fullpathGetter())
+    #os.remove(destination_file.fullpathGetter())
+    #require(not os.path.exists(destination_file.fullpathGetter()))
+    return filestore_id
 
 
 def deliverOutput(parent_job, deliverable_file, destination, retry_count=3,

@@ -9,8 +9,6 @@ from margin.utils import \
 
 from sonLib.bioio import reverseComplement, fastqRead
 
-DEBUG = True
-
 
 def mergeChainedAlignedSegments(chainedAlignedSegments, refSequence, readSequence):
     """Makes a single alignment for the given chained reads. Will soft soft clip
@@ -117,7 +115,6 @@ def mergeChainedAlignedSegments(chainedAlignedSegments, refSequence, readSequenc
 def chainFn(alignedSegments, refSeq, readSeq,
             scoreFn=lambda alignedSegment, refSeq, readSeq : sum([length for op, length in alignedSegment.cigar if op == 0]),
             maxGap=200):
-    # type: (TODO)
     # Score function is number of aligned pairs
     """Gets the highest scoring chain of alignments on either the forward or reverse
     strand. Score is (by default) number of aligned positions.
@@ -166,7 +163,7 @@ def chainFn(alignedSegments, refSeq, readSeq,
     return chain
 
 
-def chainSamFile(samFile, outputSamFile, readFastqFile, referenceFastaFile,
+def chainSamFile(parent_job, samFile, outputSamFile, readFastqFile, referenceFastaFile,
                  chainFn=chainFn):
     """Chains together the reads in the SAM file so that each read is covered by a
     single maximal alignment
@@ -198,7 +195,9 @@ def chainSamFile(samFile, outputSamFile, readFastqFile, referenceFastaFile,
                 chainedAlignedSegments.append(mergeChainedAlignedSegments(chainFn(alignedSegments,
                                               refSeq, readSeq), refSeq, readSeq))
             alignmentsHash.pop(readName)
-    assert len(alignmentsHash) == 0  # All reads in the sam file should be in the input sequence file
+
+    if len(alignmentsHash) != 0:
+        parent_job.fileStore.logToMaster("[chainSamFile]WARNING not all reads were re-chained")
 
     # Sort chained alignments by reference and reference coordinates
     chainedAlignedSegments.sort(key=lambda aR : (sam.getrname(aR.reference_id),

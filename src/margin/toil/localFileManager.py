@@ -138,8 +138,6 @@ def urlDownlodJobFunction(job, source_url):
             "[urlDownlodJobFunction]Problem downloading {src} to {dest}".format(src=source_url,
                                                                                 dest=destination_file.fullpathGetter()))
     filestore_id = job.fileStore.writeGlobalFile(destination_file.fullpathGetter())
-    #os.remove(destination_file.fullpathGetter())
-    #require(not os.path.exists(destination_file.fullpathGetter()))
     return filestore_id
 
 

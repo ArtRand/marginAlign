@@ -134,7 +134,7 @@ def urlDownlodJobFunction(job, source_url):
     workdir          = job.fileStore.getLocalTempDir()
     destination_file = LocalFile(workdir=workdir, filename="{}.tmp".format(uid))
     urlDownload(job, source_url, destination_file)
-    require(os.path.exists(destination_file.fullpathGetter()), 
+    require(os.path.exists(destination_file.fullpathGetter()),
             "[urlDownlodJobFunction]Problem downloading {src} to {dest}".format(src=source_url,
                                                                                 dest=destination_file.fullpathGetter()))
     filestore_id = job.fileStore.writeGlobalFile(destination_file.fullpathGetter())

@@ -54,8 +54,11 @@ def sortResultsByBatch(cPecan_result_fids):
 
 
 def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
+    disk   = input_samfile_fid.size + config["reference_FileStoreID"].size
+    memory = (6 * input_samfile_fid.size)
     job.addFollowOnJobFn(shardSamJobFunction, config, input_samfile_fid,
-                         output_label, cPecanRealignJobFunction, rebuildSamJobFunction)
+                         output_label, cPecanRealignJobFunction, rebuildSamJobFunction,
+                         disk=disk, memory=memory)
 
 
 def cPecanRealignJobFunction(job, global_config, job_config, batch_number,
@@ -192,7 +195,11 @@ def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_
                 "contig_seq"       : reference_map[contig_name],  # this might be very inefficient for large genomes..?
                 "contig_name"      : contig_name,
             }
-            result_id = job.addChildJobFn(batch_job_function, config, cPecan_config, batch_number).rv()
+
+            # disk requirement <= cigars + query_seqs + contig_seq + result
+            # mem requirement <= alignment
+            result_id = job.addChildJobFn(batch_job_function, config, cPecan_config, batch_number,
+                                          disk=config["reference_FileStoreID"].size).rv()
             result_fids.append((result_id, batch_number))
             return batch_number + 1
         else:  # mostly for initial conditions, do nothing
@@ -231,6 +238,11 @@ def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_
 
     send_alignment_batch(result_fids=cPecan_results, batch_number=batch_number)
 
-    job.addFollowOnJobFn(followOn_job_function, config, input_samfile_fid, output_label, cPecan_results)
+    # disk requirement <= alignment + exonerate cigars
+    # memory requirement <= alignment 
+    disk   = (1.1 * input_samfile_fid.size)
+    memory = (6 * input_samfile_fid.size)
+    job.addFollowOnJobFn(followOn_job_function, config, input_samfile_fid, output_label, cPecan_results,
+                         disk=disk, memory=memory)
 
     sam.close()

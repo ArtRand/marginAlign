@@ -9,7 +9,6 @@ from toil_lib import require
 from toil_lib.files import copy_files
 from toil_lib.programs import docker_call
 
-
 DEBUG = True
 DOCKER_DIR = "/data/"
 

@@ -7,7 +7,7 @@ import uuid
 import cPickle
 import toil_lib.programs as tlp
 from toil_lib import require
-from localFileManager import LocalFile, deliverOutput
+from localFileManager import LocalFile, deliverOutput, urlDownload
 from margin.toil.hmm import Hmm
 from margin.utils import samIterator, getExonerateCigarFormatString, getFastaDictionary
 from sonLib.bioio import cigarRead
@@ -15,7 +15,6 @@ from sonLib.bioio import cigarRead
 DOCKER_DIR = "/data/"
 
 
-# TODO move this function to localFileManager
 def setupLocalFiles(parent_job, global_config):
     # uid to be super sure we don't have any file collisions
     uid = uuid.uuid4().hex
@@ -28,21 +27,21 @@ def setupLocalFiles(parent_job, global_config):
 
     # copy the hmm file from the FileStore to local workdir
     if global_config["EM"]:  # if we did EM, use the trained model
-        # TODO make this a downloadURl thing instead of this import
-        hmm_model_fid = parent_job.fileStore.importFile(Hmm.modelFilename(global_config=global_config,
-                                                                          get_url=True))
-        assert(hmm_model_fid is not None), "[cPecanRealignJobFunction]ERROR importing trained model"
+        urlDownload(parent_job=parent_job,
+                    source_url=Hmm.modelFilename(global_config, True),
+                    destination_file=local_hmm)
+        require(os.path.exists(local_hmm.fullpathGetter()), "[setupLocalFiles]Didn't download trained model")
     else:
+        # we didn't make a trained model, so we need a user-inputted one, read that from the 
+        # fileStore
         require(global_config["input_hmm_FileStoreID"],
                 "[setupLocalFiles]Need to provide a HMM for alignment or perform alignment/EM")
-        hmm_model_fid = global_config["input_hmm_FileStoreID"]
-        assert(hmm_model_fid is not None), "[cPecanRealignJobFunction]No input model and no EM"
-    # read the HMM to the local file location
-    parent_job.fileStore.readGlobalFile(fileStoreID=hmm_model_fid, userPath=local_hmm.fullpathGetter())
+        parent_job.fileStore.readGlobalFile(fileStoreID=global_config["input_hmm_FileStoreID"],
+                                            userPath=local_hmm.fullpathGetter())
 
     local_input_obj = LocalFile(workdir=workdir, filename="cPecanInput.{}.pkl".format(uid))
 
-    return workdir, local_hmm, local_output, hmm_model_fid, local_input_obj
+    return workdir, local_hmm, local_output, local_input_obj
 
 
 def sortResultsByBatch(cPecan_result_fids):
@@ -64,11 +63,11 @@ def cPecanRealignJobFunction(job, global_config, job_config, batch_number,
     # type: (toil.job.Job, dict<string, parameters>, dict<string, string>)
     """Runs Docker-ized cPecan HMM
     """
-    workdir, local_hmm, local_output, hmm_model_fid, local_input_obj = setupLocalFiles(job, global_config)
+    workdir, local_hmm, local_output, local_input_obj = setupLocalFiles(job, global_config)
     if global_config["debug"]:
-        job.fileStore.logToMaster("[cPecanRealignJobFunction]Batch {batch} using HMM from {fid} "
+        job.fileStore.logToMaster("[cPecanRealignJobFunction]Batch {batch} using HMM from {model} "
                                   "and EM is {em}".format(batch=batch_number,
-                                                          fid=hmm_model_fid,
+                                                          model=local_hmm.filenameGetter(),
                                                           em=global_config["EM"]))
 
     # pickle the job_config, that contains the reference sequence, the query sequences, and 

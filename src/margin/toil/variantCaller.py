@@ -14,7 +14,7 @@ from localFileManager import LocalFile, deliverOutput
 def calculateAlignedPairsJobFunction(job, global_config, job_config, batch_number,
                                      cPecan_image="quay.io/artrand/cpecanrealign"):
     # UID to avoid file collisions
-    workdir, local_hmm, local_output, hmm_model_fid, local_input_obj = setupLocalFiles(job, global_config)
+    workdir, local_hmm, local_output, local_input_obj = setupLocalFiles(job, global_config)
 
     if global_config["debug"]:
         job.fileStore.logToMaster("[calculateAlignedPairsJobFunction]Getting aligned pairs "

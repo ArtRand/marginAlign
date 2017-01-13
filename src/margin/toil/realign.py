@@ -8,6 +8,7 @@ import cPickle
 import toil_lib.programs as tlp
 from toil_lib import require
 from localFileManager import LocalFile, deliverOutput
+from margin.toil.hmm import Hmm
 from margin.utils import samIterator, getExonerateCigarFormatString, getFastaDictionary
 from sonLib.bioio import cigarRead
 
@@ -16,11 +17,6 @@ DOCKER_DIR = "/data/"
 
 # TODO move this function to localFileManager
 def setupLocalFiles(parent_job, global_config):
-    def get_model_url():
-        model_url = global_config["output_dir"] + "{}_trainedmodel.hmm".format(global_config["sample_label"])
-        parent_job.fileStore.logToMaster("[get_model_url]Getting model from {}".format(model_url))
-        return model_url
-
     # uid to be super sure we don't have any file collisions
     uid = uuid.uuid4().hex
 
@@ -32,7 +28,9 @@ def setupLocalFiles(parent_job, global_config):
 
     # copy the hmm file from the FileStore to local workdir
     if global_config["EM"]:  # if we did EM, use the trained model
-        hmm_model_fid = parent_job.fileStore.importFile(get_model_url())
+        # TODO make this a downloadURl thing instead of this import
+        hmm_model_fid = parent_job.fileStore.importFile(Hmm.modelFilename(global_config=global_config,
+                                                                          get_url=True))
         assert(hmm_model_fid is not None), "[cPecanRealignJobFunction]ERROR importing trained model"
     else:
         require(global_config["input_hmm_FileStoreID"],

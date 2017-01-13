@@ -25,7 +25,6 @@ def removeTempSuffix(filename):
 class LocalFileManager(object):
     """Gets all the files in 'fileIds_to_get' from the global fileStore
     and puts them in the local working directory.
-    returns: file_dict<file_id, (full_path, unique_file_name)>, work_dir
     """
     def __init__(self, job, fileIds_to_get, userFileNames=None):
         # type: (toil.job.Job, list<str>, dict<str, str>)

@@ -17,8 +17,13 @@ DOCKER_DIR = "/data/"
 
 
 def performBaumWelchOnSamJobFunction(job, config, input_samfile_fid):
+    disk   = 2.5 * input_samfile_fid.size
+    memory = 6 * input_samfile_fid.size
     if config["input_hmm_FileStoreID"] is not None or not config["random_start"]:  # normal EM
-        job.addFollowOnJobFn(prepareBatchesJobFunction, config, input_samfile_fid)
+        job.fileStore.logToMaster("[performBaumWelchOnSamJobFunction]Asking for disk {disk} and "
+                                  "memory {mem} for batch prep".format(disk=disk, mem=memory))
+        job.addFollowOnJobFn(prepareBatchesJobFunction, config, input_samfile_fid,
+                             disk=disk, memory=memory)
     else:
         raise NotImplementedError
     return
@@ -120,6 +125,7 @@ def prepareBatchesJobFunction(job, config, input_samfile_fid):
             reads_handle.close()
             cigar_fid = job.fileStore.writeGlobalFile(cigar_file)
             reads_fid = job.fileStore.writeGlobalFile(reads_file)
+            # TODO test deleting local file here, to save on disk
             return (cigar_fid, reads_fid)
 
         batch_fids = [pack_up(batch) for batch in sampled_alignments]
@@ -312,9 +318,9 @@ def normalizeModelJobFunction(job, config):
     normaliseHmmByReferenceGCContent(config["gc_content"])
 
     workdir = job.fileStore.getLocalTempDir()
-    normalized_model = LocalFile(workdir=workdir, filename="{}_trainedmodel.hmm".format(config["sample_label"]))
+    normalized_model = LocalFile(workdir=workdir, filename=Hmm.modelFilename(global_config=config))
     hmm.write(normalized_model.fullpathGetter())
-    require(os.path.exists(normalized_model.fullpathGetter()), 
+    require(os.path.exists(normalized_model.fullpathGetter()),
             "[normalizeModelJobFunction]Didn't write VCF locally tried to write to {}"
             "".format(normalized_model.fullpathGetter()))
 

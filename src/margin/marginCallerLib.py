@@ -14,12 +14,20 @@ def getProb(subMatrix, start, end):
     """
     return subMatrix[(start, end)]
 
-def calcBasePosteriorProbs(baseObservations, refBase, 
+
+def getEvoProb(evoMatrix, start, end):
+    if start in BASES:
+        return evoMatrix[(start, end)]
+    else:
+        return 0.25
+
+
+def calcBasePosteriorProbs(baseObservations, refBase,
                            evolutionarySubstitionMatrix, errorSubstutionMatrix):
     """Function that does the column probability calculation.
     """
     logBaseProbs = map(lambda missingBase : \
-            math.log(getProb(evolutionarySubstitionMatrix, refBase.upper(), missingBase)) + 
+            math.log(getEvoProb(evolutionarySubstitionMatrix, refBase.upper(), missingBase)) + 
             reduce(lambda x, y : x + y, map(lambda observedBase : \
                         math.log(getProb(errorSubstutionMatrix, missingBase, 
                                          observedBase))*baseObservations[observedBase], BASES)), BASES)

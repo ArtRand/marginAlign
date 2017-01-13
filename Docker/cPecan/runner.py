@@ -42,19 +42,8 @@ def getTempFiles(params, args):
 
 
 def realign(args):
-    # check input
-    #assert(args.input_params is not None), "[runner.py::realign]No input arg (should be a pickle)"
-    #with open(args.input_params, 'r') as fH:
-    #    params = cPickle.load(fH)
     params = getParamsFromInputPickle(args)
 
-    # intermediate files
-    #uid = uuid.uuid4().hex
-    #temp_read_fn      = args.work_dir + "read.{}.fa".format(uid)
-    #temp_reference_fn = args.work_dir + "reference.{}.fa".format(uid)
-    #exonerate_cigars  = params["exonerate_cigars"]
-    #read_sequences    = params["query_sequences"]
-    #read_labels       = params["query_labels"]
     temp_read_fn, temp_reference_fn, exonerate_cigars, read_sequences, read_labels = getTempFiles(params, args)
 
     # write the reference for cPecan 

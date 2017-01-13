@@ -68,7 +68,8 @@ def callVariantsWithAlignedPairsJobFunction(job, config, input_samfile_fid, outp
     evo_sub_mat   = getNullSubstitutionMatrix()
     workdir       = job.fileStore.getLocalTempDir()
     output_vcf    = LocalFile(workdir=workdir,
-                              filename="{sample}_{out_label}.vcf".format(sample=config["sample_label"], out_label=output_label))
+                              filename="{sample}_{out_label}.vcf".format(sample=config["sample_label"],
+                                                                         out_label=output_label))
 
     for contig, position in expectations_at_each_position:
         ref_base     = contig_seqs[contig][position]

@@ -94,3 +94,11 @@ class Hmm:
             self.emissions[state*SYMBOL_NUMBER**2:(state+1)*SYMBOL_NUMBER**2] = a
         assert len(self.emissions) == self.stateNumber * SYMBOL_NUMBER**2
 
+    @staticmethod
+    def modelFilename(global_config, get_url=False):
+        model_filename = "{lab}_{emiter}_trainedmodel.hmm".format(lab=global_config["sample_label"],
+                                                                  emiter=global_config["em_iterations"])
+        if get_url:
+            return global_config["output_dir"] + model_filename
+        else:
+            return model_filename

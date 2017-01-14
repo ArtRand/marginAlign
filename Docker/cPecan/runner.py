@@ -8,7 +8,7 @@ import uuid
 import cPickle
 from argparse import ArgumentParser
 
-print("running.. RUNNER!! with EM! and ALIGNEDPAIRS")
+print("running.. RUNNER!! with EM! and ALIGNEDPAIRS2")
 
 
 def fasta_write(file_path, seq, seq_label):
@@ -84,7 +84,7 @@ def getAlignedPairs(args):
                                  probs=temp_posterior_filepath))
         else:
             cmd = "echo \"{cig}\" | cPecanRealign {ref} {query} --diagonalExpansion=10 "\
-                  "--splitMatrixBiggerThanThis=100 --outputPosteriorProbs={probs} --loadHmm={hmm}"
+                  "--splitMatrixBiggerThanThis=100 --outputAllPosteriorProbs={probs} --loadHmm={hmm}"
             os.system(cmd.format(cig=cig, ref=temp_reference_fn, query=temp_read_fn,
                                  probs=temp_posterior_filepath, hmm=args.hmm_file))
 

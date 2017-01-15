@@ -173,13 +173,9 @@ def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_
         return
 
     def send_alignment_batch(result_fids, batch_number):
-        # type: (list<string>)
+        # type: (list<string>, int) -> int
         # result_fids should be updated with the FileStoreIDs with the cPecan results
         if exonerate_cigar_batch is not None:
-            if config["debug"]:
-                job.fileStore.logToMaster("[send_alignment_batch]Starting batch {batch} for contig {contig} "
-                                          "".format(batch=batch_number, contig=contig_name))
-
             assert(len(exonerate_cigar_batch) == len(query_seqs)),\
                 "[send_alignment_batch] len(exonerate_cigar_batch) != len(query_seqs)"
             assert(len(query_seqs) == len(query_labs)),\
@@ -226,6 +222,9 @@ def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_
         assert(query_seqs is not None), "[realignSamFile]ERROR query_batch is NONE"
         assert(query_labs is not None), "[realignSamFile]ERROR query_labs is NONE"
 
+        # TODO consider moving this to the child job, although you would have to send the sam too then...
+        # unless I refactor the exonerateCigar function, which is totally doable, you just need the
+        # reference name
         exonerate_cigar_batch.append(getExonerateCigarFormatString(aligned_segment, sam) + "\n")
         query_seqs.append(aligned_segment.query_sequence + "\n")
         query_labs.append(aligned_segment.query_name + "\n")
@@ -234,7 +233,8 @@ def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_
         contig_name = sam.getrname(aligned_segment.reference_id)
 
     send_alignment_batch(result_fids=cPecan_results, batch_number=batch_number)
-
+    
+    job.fileStore.logToMaster("[shardSamJobFunction]Made {} batches".format(batch_number + 1))
     # disk requirement <= alignment + exonerate cigars
     # memory requirement <= alignment 
     disk   = (1.1 * input_samfile_fid.size)

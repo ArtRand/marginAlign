@@ -6,7 +6,7 @@ from itertools import islice, chain
 from toil_lib import require
 from toil_lib.programs import docker_call
 
-from margin.toil.realign import setupLocalFiles, DOCKER_DIR, sortResultsByBatch
+from margin.toil.realign import setupLocalFiles, DOCKER_DIR
 from margin.marginCallerLib import \
     loadHmmSubstitutionMatrix, getNullSubstitutionMatrix, calcBasePosteriorProbs, vcfWrite, vcfRead
 from margin.utils import getFastaDictionary
@@ -20,7 +20,10 @@ def calculateAlignedPairsJobFunction(job, global_config, job_config, batch_numbe
 
     if global_config["debug"]:
         job.fileStore.logToMaster("[calculateAlignedPairsJobFunction]Getting aligned pairs "
-                                  "for batch {num}".format(num=batch_number))
+                                  "for batch {num} for contig {contig} and for {nseqs} "
+                                  "sequences".format(num=batch_number,
+                                                     contig=job_config["contig_name"],
+                                                     nseqs=len(job_config["query_labels"])))
 
     with open(local_input_obj.fullpathGetter(), "w") as fH:
         cPickle.dump(job_config, fH)
@@ -45,7 +48,7 @@ def calculateAlignedPairsJobFunction(job, global_config, job_config, batch_numbe
 
 
 def callVariantsOnBatch(job, config, expectations_batch):
-    job.fileStore.logToMaster("[callVariantsOnBatch]working on a batch of expectations")
+    #job.fileStore.logToMaster("[callVariantsOnBatch]working on a batch of expectations")
     BASES         = "ACGT"
     variant_calls = []
     contig_seqs   = getFastaDictionary(job.fileStore.readGlobalFile(config["reference_FileStoreID"]))
@@ -67,6 +70,7 @@ def callVariantsOnBatch(job, config, expectations_batch):
 
 
 def writeAndDeliverVCF(job, config, nested_variant_calls, output_label):
+    job.fileStore.logToMaster("[writeAndDeliverVCF]Starting final VCF output")
     contig_seqs = getFastaDictionary(job.fileStore.readGlobalFile(config["reference_FileStoreID"]))
     workdir     = job.fileStore.getLocalTempDir()
     output_vcf  = LocalFile(workdir=workdir,
@@ -76,7 +80,8 @@ def writeAndDeliverVCF(job, config, nested_variant_calls, output_label):
     variant_calls = chain.from_iterable(nested_variant_calls)
 
     vcfWrite(config["ref"], contig_seqs, variant_calls, output_vcf.fullpathGetter())
-    require(os.path.exists(output_vcf.fullpathGetter()), "[callVariantsWithAlignedPairsJobFunction]Did not make temp VCF file")
+    require(os.path.exists(output_vcf.fullpathGetter()),
+            "[callVariantsWithAlignedPairsJobFunction]Did not make temp VCF file")
 
     if config["debug"]:
         variant_calls2 = chain.from_iterable(nested_variant_calls)
@@ -90,19 +95,24 @@ def writeAndDeliverVCF(job, config, nested_variant_calls, output_label):
 def callVariantsWithAlignedPairsJobFunction(job, config, input_samfile_fid, output_label, cPecan_alignedPairs_fids):
     def chunk_expectations():
         it = iter(expectations_at_each_position)
-        for i in xrange(0, len(expectations_at_each_position), config["max_variant_call_positions_per_job"]):
-            yield {k: expectations_at_each_position[k] for k in islice(it, config["max_variant_call_positions_per_job"])}
+        for i in xrange(0, len(expectations_at_each_position),
+                        config["max_variant_call_positions_per_job"]):
+            yield {k: expectations_at_each_position[k]
+                   for k in islice(it, config["max_variant_call_positions_per_job"])}
 
     BASES = "ACGT"
-    sorted_alignedPair_fids = sortResultsByBatch(cPecan_alignedPairs_fids)
-
-    if config["debug"]:
-        job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction]Got {} sets of aligned pairs "
-                                  "".format(len(cPecan_alignedPairs_fids)))
+    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction]Got {} result "
+                              "filestore IDs".format(len(cPecan_alignedPairs_fids)))
+    # we don't need to sort the aligned pair results by batch because we're just putting them into a 
+    # dict anyways, so just ditch the batch number here
+    posterior_fids = [x[0] for x in cPecan_alignedPairs_fids]
+    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction]Collating posteriors have {} files ..."
+                              "".format(len(posterior_fids)))
 
     expectations_at_each_position = {}  # stores posterior probs
-
-    for aP_fid in sorted_alignedPair_fids:
+    # run through the alignedPairs and collect the expectations for each (contig_name, position) key 
+    # in this dict, this could be sped up hugely, but I'm not sure if it needs to be right now
+    for aP_fid in posterior_fids:
         posteriors_file = job.fileStore.readGlobalFile(aP_fid)
         with open(posteriors_file, 'r') as fH:
             posteriors = cPickle.load(fH)
@@ -111,10 +121,14 @@ def callVariantsWithAlignedPairsJobFunction(job, config, input_samfile_fid, outp
                     expectations_at_each_position[k] = dict(zip(BASES, [0.0] * len(BASES)))
                 for b in BASES:
                     expectations_at_each_position[k][b] += posteriors[k][b]
+        job.fileStore.deleteGlobalFile(posteriors_file)
+
+    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction]... done")
 
     variant_calls = []
     batch_number  = 0
-
+ 
+    # parallel map of calling variants 
     for chunk in chunk_expectations():
         variant_calls.append(job.addChildJobFn(callVariantsOnBatch, config, chunk).rv())
         batch_number += 1

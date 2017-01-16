@@ -117,7 +117,7 @@ def urlDownload(parent_job, source_url, destination_file, retry_count=3, s3am_im
                 parent_job.fileStore.logToMaster("[urlDownload]S3AM failed with args {}".format(s3am_args.__str__()))
             else:
                 check_destination()
-                parent_job.fileStore.logToMaster("[urlDownload]S3AM download succeeded")
+                parent_job.fileStore.logToMaster("[urlDownload]S3AM download {} successfully".format(source_url))
                 return
         raise RuntimeError("[urlDownload]Downloadig {source} to {destination} failed after {n} attempts"
                            "".format(source=source_url, destination=destination_file.fullpathGetter(), n=retry_count))

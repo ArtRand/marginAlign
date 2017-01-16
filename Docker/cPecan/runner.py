@@ -4,11 +4,19 @@
 from __future__ import print_function
 import os
 import sys
+import subprocess
 import uuid
 import cPickle
 from argparse import ArgumentParser
 
 print("running.. RUNNER!! with EM! and ALIGNEDPAIRS2")
+
+
+def system(cmd):
+    sts = subprocess.call(cmd, shell=True, bufsize=-1, stdout=sys.stdout, stderr=sys.stderr)
+    if sts != 0:
+        raise RuntimeError("Command: %s exited with non-zero status %i" % (cmd, sts))
+    return sts
 
 
 def fasta_write(file_path, seq, seq_label):

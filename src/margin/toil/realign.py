@@ -205,12 +205,14 @@ def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_
     contig_name           = None        # send a batch when we get to a new contig
     cPecan_results        = []          # container with the FileStoreIDs of the re-alignment results
     batch_number          = 0           # ordering of the batches, so we can reassemble the new sam later
+    alns_in_batch         = 0           # number of alignments we have in a batch, not to overload one
 
     # this loop shards the sam and sends batches to be realigned
     for aligned_segment in samIterator(sam):
-        # XXX put in a break here for if there are too many reads, or if a single read is too long
-        if (total_seq_len > config["max_length_per_job"] or
-           contig_name != sam.getrname(aligned_segment.reference_id)):  # make a new batch of reads and cigars
+        if (total_seq_len > config["max_alignment_length_per_job"] or
+           contig_name != sam.getrname(aligned_segment.reference_id) or
+           alns_in_batch >= config["max_alignments_per_job"] or
+           len(aligned_segment.query_sequence) >= config["cut_batch_at_alignment_this_big"]):
             # send the previous batch to become a child job
             batch_number = send_alignment_batch(result_fids=cPecan_results, batch_number=batch_number)
             # start new batches
@@ -218,6 +220,7 @@ def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_
             query_seqs            = []
             query_labs            = []
             total_seq_len         = 0
+            alns_in_batch         = 0
 
         assert(exonerate_cigar_batch is not None), "[realignSamFile]ERROR exonerate_cigar_batch is NONE"
         assert(query_seqs is not None), "[realignSamFile]ERROR query_batch is NONE"
@@ -231,10 +234,11 @@ def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_
         query_labs.append(aligned_segment.query_name + "\n")
         # updates
         total_seq_len += len(aligned_segment.query_sequence)
+        alns_in_batch += 1
         contig_name = sam.getrname(aligned_segment.reference_id)
 
     send_alignment_batch(result_fids=cPecan_results, batch_number=batch_number)
-    
+
     job.fileStore.logToMaster("[shardSamJobFunction]Made {} batches".format(batch_number + 1))
     # disk requirement <= alignment + exonerate cigars
     # memory requirement <= alignment 

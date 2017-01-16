@@ -85,7 +85,7 @@ def prepareBatchesJobFunction(job, config, input_samfile_fid):
             aln_length = aR.query_alignment_length
             alignment_batch.append(aR)
             cum_alignment_len += aln_length
-            if cum_alignment_len >= config["max_length_per_job"]:  # make a batch and reset
+            if cum_alignment_len >= config["max_alignment_length_per_job"]:  # make a batch and reset
                 split_alignments.append((alignment_batch, cum_alignment_len))
                 cum_alignment_len = 0
                 alignment_batch   = []

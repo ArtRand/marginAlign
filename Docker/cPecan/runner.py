@@ -73,9 +73,11 @@ def getAlignedPairs(args):
     expectationsOfBasesAtEachPosition = {}
 
     uid = uuid.uuid4().hex
-    temp_posterior_filepath = args.work_dir + "posteriorProbs.{}.txt".format(uid)
     for cig, seq, lab in zip(exonerate_cigars, read_sequences, read_labels):
         fasta_write(file_path=temp_read_fn, seq=seq, seq_label=lab)
+        temp_posterior_filepath = args.work_dir + "posteriorProbs.{}.txt".format(uid)
+        assert(os.path.exists(temp_read_fn))
+
         if args.no_margin:
             cmd = "echo \"{cig}\" | cPecanRealign {ref} {query} --diagonalExpansion=0 "\
                   "--splitMatrixBiggerThanThis=1 --rescoreOriginalAlignment "\
@@ -88,19 +90,22 @@ def getAlignedPairs(args):
             os.system(cmd.format(cig=cig, ref=temp_reference_fn, query=temp_read_fn,
                                  probs=temp_posterior_filepath, hmm=args.hmm_file))
 
-        assert(os.path.exists(temp_posterior_filepath))
+        if not os.path.exists(temp_posterior_filepath):
+            continue
 
         # now collate the reference position expectations
         with open(temp_posterior_filepath, 'r') as fH:
             for refPosition, queryPosition, posteriorProb in map(lambda x : map(float, x.split()), fH):
                 assert posteriorProb <= 1.01
                 assert posteriorProb >= 0.0
-                key = (params["contig_name"], int(refPosition))
-                if key not in expectationsOfBasesAtEachPosition:
-                    expectationsOfBasesAtEachPosition[key] = dict(zip(BASES, [0.0] * len(BASES)))
-                queryBase = seq[int(queryPosition)].upper()
-                if queryBase in BASES:  # Could be an N or other wildcard character, which we ignore
-                    expectationsOfBasesAtEachPosition[key][queryBase] += 1.0 if args.no_margin else posteriorProb
+                key        = (params["contig_name"], int(refPosition))
+                query_base = seq[int(queryPosition)].upper()
+                if query_base in BASES:  # Could be an N or other wildcard character, which we ignore
+                    if key not in expectationsOfBasesAtEachPosition:
+                        expectationsOfBasesAtEachPosition[key] = dict(zip(BASES, [0.0] * len(BASES)))
+                    expectationsOfBasesAtEachPosition[key][query_base] += 1.0 if args.no_margin else posteriorProb
+                else:
+                    continue
 
     with open(args.out_posteriors, "w") as fH:
         cPickle.dump(expectationsOfBasesAtEachPosition, fH, cPickle.HIGHEST_PROTOCOL)

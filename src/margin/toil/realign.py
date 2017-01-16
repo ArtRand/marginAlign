@@ -208,6 +208,7 @@ def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_
 
     # this loop shards the sam and sends batches to be realigned
     for aligned_segment in samIterator(sam):
+        # XXX put in a break here for if there are too many reads, or if a single read is too long
         if (total_seq_len > config["max_length_per_job"] or
            contig_name != sam.getrname(aligned_segment.reference_id)):  # make a new batch of reads and cigars
             # send the previous batch to become a child job
@@ -242,4 +243,5 @@ def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_
     job.addFollowOnJobFn(followOn_job_function, config, input_samfile_fid, output_label, cPecan_results,
                          disk=disk, memory=memory)
 
+    # XXX why is this at the end?!
     sam.close()

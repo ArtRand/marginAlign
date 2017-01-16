@@ -48,7 +48,7 @@ def calculateAlignedPairsJobFunction(job, global_config, job_config, batch_numbe
 
 
 def callVariantsOnBatch(job, config, expectations_batch):
-    #job.fileStore.logToMaster("[callVariantsOnBatch]working on a batch of expectations")
+    job.fileStore.logToMaster("[callVariantsOnBatch]working on a batch of expectations")
     BASES         = "ACGT"
     variant_calls = []
     contig_seqs   = getFastaDictionary(job.fileStore.readGlobalFile(config["reference_FileStoreID"]))

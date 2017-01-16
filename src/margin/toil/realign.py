@@ -12,6 +12,7 @@ from margin.toil.hmm import Hmm
 from margin.utils import samIterator, getExonerateCigarFormatString, getFastaDictionary
 from sonLib.bioio import cigarRead
 
+
 DOCKER_DIR = "/data/"
 
 
@@ -51,6 +52,10 @@ def sortResultsByBatch(cPecan_result_fids):
 
 
 def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
+    # break up the alignment 
+    # make a child job for each smaller alignment
+    # -->these will make small rebuilt alignents
+    # combine them all
     disk   = input_samfile_fid.size + config["reference_FileStoreID"].size
     memory = (6 * input_samfile_fid.size)
     job.addFollowOnJobFn(shardSamJobFunction, config, input_samfile_fid,
@@ -151,7 +156,6 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, output_label, cPecan_c
 
     require(os.path.exists(output_sam_file.fullpathGetter()), "[rebuildSamJobFunction]out_sam_path does not exist at "
                                                               "{}".format(output_sam_file.fullpathGetter()))
-    # TODO convert to BAM before delivery, make childJobFunction
     deliverOutput(job, output_sam_file, config["output_dir"])
 
 

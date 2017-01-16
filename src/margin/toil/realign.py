@@ -7,7 +7,7 @@ import uuid
 import cPickle
 import toil_lib.programs as tlp
 from toil_lib import require
-from localFileManager import LocalFile, deliverOutput, urlDownload
+from localFileManager import LocalFile, urlDownload, deliverOutputJobFunction
 from margin.toil.hmm import Hmm
 from margin.utils import samIterator, getExonerateCigarFormatString, getFastaDictionary
 from sonLib.bioio import cigarRead
@@ -56,11 +56,15 @@ def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
     # make a child job for each smaller alignment
     # -->these will make small rebuilt alignents
     # combine them all
-    disk   = input_samfile_fid.size + config["reference_FileStoreID"].size
-    memory = (6 * input_samfile_fid.size)
-    job.addFollowOnJobFn(shardSamJobFunction, config, input_samfile_fid,
-                         output_label, cPecanRealignJobFunction, rebuildSamJobFunction,
-                         disk=disk, memory=memory)
+    disk          = input_samfile_fid.size + config["reference_FileStoreID"].size
+    memory        = (6 * input_samfile_fid.size)
+    realigned_sam = job.addChildJobFn(shardSamJobFunction, config, input_samfile_fid,
+                                      output_label, cPecanRealignJobFunction, rebuildSamJobFunction,
+                                      disk=disk, memory=memory).rv()
+    filename      = "{sample}_{out_label}.sam".format(sample=config["sample_label"],
+                                                      out_label=output_label)
+    destination = config["output_dir"] + filename
+    job.addFollowOnJobFn(deliverOutputJobFunction, realigned_sam, destination)
 
 
 def cPecanRealignJobFunction(job, global_config, job_config, batch_number,
@@ -120,11 +124,9 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, output_label, cPecan_c
         return
     # sort the cPecan results by batch, then discard the batch number. this is so they 'line up' with the sam
     sorted_cPecan_fids = sortResultsByBatch(cPecan_cigar_fileIds)
-    workdir            = job.fileStore.getLocalTempDir()
-    output_sam_file    = LocalFile(workdir=workdir,
-                                   filename="{sample}_{out_label}.sam".format(sample=config["sample_label"],
-                                                                              out_label=output_label))
-    output_sam_handle  = pysam.Samfile(output_sam_file.fullpathGetter(), 'wh', template=sam)
+
+    temp_sam_filepath = job.fileStore.getLocalTempFileName()
+    output_sam_handle = pysam.Samfile(temp_sam_filepath, 'wh', template=sam)
 
     for aR, pA in zip(samIterator(sam), cigar_iterator()):
         ops = []
@@ -154,9 +156,9 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, output_label, cPecan_c
     sam.close()
     output_sam_handle.close()
 
-    require(os.path.exists(output_sam_file.fullpathGetter()), "[rebuildSamJobFunction]out_sam_path does not exist at "
-                                                              "{}".format(output_sam_file.fullpathGetter()))
-    deliverOutput(job, output_sam_file, config["output_dir"])
+    require(os.path.exists(temp_sam_filepath),
+            "[rebuildSamJobFunction]out_sam_path does not exist at {}".format(temp_sam_filepath))
+    return job.fileStore.writeGlobalFile(temp_sam_filepath)
 
 
 def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_function, followOn_job_function):
@@ -242,14 +244,13 @@ def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_
         contig_name = sam.getrname(aligned_segment.reference_id)
 
     send_alignment_batch(result_fids=cPecan_results, batch_number=batch_number)
-
+    sam.close()
     job.fileStore.logToMaster("[shardSamJobFunction]Made {} batches".format(batch_number + 1))
     # disk requirement <= alignment + exonerate cigars
     # memory requirement <= alignment 
     disk   = (1.1 * input_samfile_fid.size)
     memory = (6 * input_samfile_fid.size)
-    job.addFollowOnJobFn(followOn_job_function, config, input_samfile_fid, output_label, cPecan_results,
-                         disk=disk, memory=memory)
-
-    # XXX why is this at the end?!
-    sam.close()
+    rebuildsam_job  = job.addFollowOnJobFn(followOn_job_function, config, input_samfile_fid,
+                                           output_label, cPecan_results, disk=disk, memory=memory)
+    rebuilt_sam_fid = rebuildsam_job.rv()
+    return rebuilt_sam_fid

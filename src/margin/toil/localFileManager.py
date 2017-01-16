@@ -172,3 +172,7 @@ def deliverOutput(parent_job, deliverable_file, destination, retry_count=3,
                                          "".format(f=deliverable_file.fullpathGetter(), out=destination_dir))
         copy_files(file_paths=[deliverable_file.fullpathGetter()], output_dir=destination_dir)
         return
+
+
+def deliverOutputJobFunction(job, deliverable_fid, destination_url):
+    job.fileStore.exportFile(deliverable_fid, destination_url)

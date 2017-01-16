@@ -148,7 +148,8 @@ def deliverOutput(parent_job, deliverable_file, destination, retry_count=3,
                                                                "".format(here=deliverable_file))
 
     if urlparse.urlparse(destination).scheme == "s3":
-        parent_job.fileStore.logToMaster("[deliverOutput]Using S3AM docker...")
+        parent_job.fileStore.logToMaster("[deliverOutput]Using S3AM docker to upload to {}..."
+                                         "".format(destination + deliverable_file.filenameGetter()))
         source_arg = DOCKER_DIR + deliverable_file.filenameGetter()
         s3am_args  = ["upload", source_arg, destination]
         if overwrite:
@@ -160,7 +161,7 @@ def deliverOutput(parent_job, deliverable_file, destination, retry_count=3,
             except subprocess.CalledProcessError:
                 parent_job.fileStore.logToMaster("[deliverOutput]S3AM failed with args {}".format(s3am_args.__str__()))
             else:
-                parent_job.fileStore.logToMaster("[deliverOutput]S3AM succeeded")
+                parent_job.fileStore.logToMaster("[deliverOutput]... S3AM succeeded")
                 return
         raise RuntimeError("[deliverOutput]Delivering {deliverable} to {destination} failed after {n} attempts"
                            "".format(deliverable=deliverable_file, destination=destination, n=retry_count))

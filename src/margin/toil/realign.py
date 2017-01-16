@@ -7,7 +7,8 @@ import uuid
 import cPickle
 import toil_lib.programs as tlp
 from toil_lib import require
-from localFileManager import LocalFile, urlDownload, deliverOutputJobFunction
+from alignment import splitLargeAlignment
+from localFileManager import LocalFile, urlDownload, deliverOutput
 from margin.toil.hmm import Hmm
 from margin.utils import samIterator, getExonerateCigarFormatString, getFastaDictionary
 from sonLib.bioio import cigarRead
@@ -56,15 +57,38 @@ def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
     # make a child job for each smaller alignment
     # -->these will make small rebuilt alignents
     # combine them all
-    disk          = input_samfile_fid.size + config["reference_FileStoreID"].size
-    memory        = (6 * input_samfile_fid.size)
-    realigned_sam = job.addChildJobFn(shardSamJobFunction, config, input_samfile_fid,
-                                      output_label, cPecanRealignJobFunction, rebuildSamJobFunction,
-                                      disk=disk, memory=memory).rv()
-    filename      = "{sample}_{out_label}.sam".format(sample=config["sample_label"],
-                                                      out_label=output_label)
-    destination = config["output_dir"] + filename
-    job.addFollowOnJobFn(deliverOutputJobFunction, realigned_sam, destination)
+    smaller_alns   = splitLargeAlignment(job, config, input_samfile_fid)
+    realigned_fids = []
+    for aln in smaller_alns:
+        disk          = aln.size + config["reference_FileStoreID"].size
+        memory        = (6 * aln.size)
+        realigned_sam = job.addChildJobFn(shardSamJobFunction, config, aln,
+                                          output_label, cPecanRealignJobFunction, rebuildSamJobFunction,
+                                          disk=disk, memory=memory).rv()
+        realigned_fids.append(realigned_sam)
+
+    job.addFollowOnJobFn(combineRealignedSamfilesJobFunction, config, input_samfile_fid, realigned_fids,
+                         output_label)
+
+
+def combineRealignedSamfilesJobFunction(job, config, input_samfile_fid, realigned_fids, output_label):
+    original_sam      = job.fileStore.readGlobalFile(input_samfile_fid)
+    sam               = pysam.Samfile(original_sam, "r")
+    filename          = "{sample}_{out_label}.sam".format(sample=config["sample_label"], out_label=output_label)
+    output_sam        = LocalFile(workdir=job.fileStore.getLocalTempDir(), filename=filename)
+    output_sam_handle = pysam.Samfile(output_sam.fullpathGetter(), "wh", template=sam)
+    sam.close()
+
+    for fid in realigned_fids:
+        local_copy = job.fileStore.readGlobalFile(fid)
+        samfile    = pysam.Samfile(local_copy, "r")
+        for line in samfile:
+            output_sam_handle.write(line)
+        samfile.close()
+        job.fileStore.deleteGlobalFile(fid)
+
+    output_sam_handle.close()
+    deliverOutput(job, output_sam, config["output_dir"])
 
 
 def cPecanRealignJobFunction(job, global_config, job_config, batch_number,

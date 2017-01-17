@@ -92,21 +92,14 @@ def writeAndDeliverVCF(job, config, nested_variant_calls, output_label):
     deliverOutput(job, output_vcf, config["output_dir"])
 
 
-def callVariantsWithAlignedPairsJobFunction(job, config, input_samfile_fid, output_label, cPecan_alignedPairs_fids):
-    def chunk_expectations():
-        it = iter(expectations_at_each_position)
-        for i in xrange(0, len(expectations_at_each_position),
-                        config["max_variant_call_positions_per_job"]):
-            yield {k: expectations_at_each_position[k]
-                   for k in islice(it, config["max_variant_call_positions_per_job"])}
-
+def marginalizePosteriorProbsJobFunction(job, config, input_samfile_fid, cPecan_alignedPairs_fids):
+    # type(toil.job.Job, dict, FileStoreID, list<FileStoreId>) n.b. the input_samfile_fid is ignored
+    """reads in the posteriors and marginalizes (reduces) over the columns of the alignment returns a 
+    python dict with the expectations at each position
+    """
     BASES = "ACGT"
-    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction]Got {} result "
-                              "filestore IDs".format(len(cPecan_alignedPairs_fids)))
-    # we don't need to sort the aligned pair results by batch because we're just putting them into a 
-    # dict anyways, so just ditch the batch number here
     posterior_fids = [x[0] for x in cPecan_alignedPairs_fids]
-    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction]Collating posteriors have {} files ..."
+    job.fileStore.logToMaster("[marginalizePosteriorProbsJobFunction]Collating posteriors have {} files ..."
                               "".format(len(posterior_fids)))
 
     expectations_at_each_position = {}  # stores posterior probs
@@ -123,11 +116,37 @@ def callVariantsWithAlignedPairsJobFunction(job, config, input_samfile_fid, outp
                     expectations_at_each_position[k][b] += posteriors[k][b]
         job.fileStore.deleteGlobalFile(posteriors_file)
 
-    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction]... done")
+    job.fileStore.logToMaster("[marginalizePosteriorProbsJobFunction]... done")
 
+    return expectations_at_each_position
+
+
+def callVariantsWithAlignedPairsJobFunction(job, config, input_samfile_fid, output_label,
+                                            expectation_batches):
+    def chunk_expectations():
+        it = iter(expectations_at_each_position)
+        for i in xrange(0, len(expectations_at_each_position),
+                        config["max_variant_call_positions_per_job"]):
+            yield {k: expectations_at_each_position[k]
+                   for k in islice(it, config["max_variant_call_positions_per_job"])}
+
+    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction]Reducing {} expectations..."
+                              "".format(len(expectation_batches)))
+    BASES = "ACGT"
+    # combine the expectations. this is crappy code
+    expectations_at_each_position = expectation_batches[0]  # get the first one to reduce on
+    for batch in expectation_batches[1:]:
+        for k in batch:  # k = (contig, position)
+            if k not in expectations_at_each_position:
+                expectations_at_each_position[k] = batch[k]
+                continue
+            for b in BASES:
+                expectations_at_each_position[k][b] += batch[k][b]
+
+    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction]...Done")
     variant_calls = []
     batch_number  = 0
- 
+
     # parallel map of calling variants 
     for chunk in chunk_expectations():
         variant_calls.append(job.addChildJobFn(callVariantsOnBatch, config, chunk).rv())

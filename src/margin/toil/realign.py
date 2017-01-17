@@ -53,17 +53,14 @@ def sortResultsByBatch(cPecan_result_fids):
 
 
 def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
-    # break up the alignment 
-    # make a child job for each smaller alignment
-    # -->these will make small rebuilt alignents
-    # combine them all
     smaller_alns   = splitLargeAlignment(job, config, input_samfile_fid)
     realigned_fids = []
+
     for aln in smaller_alns:
         disk          = aln.size + config["reference_FileStoreID"].size
         memory        = (6 * aln.size)
         realigned_sam = job.addChildJobFn(shardSamJobFunction, config, aln,
-                                          output_label, cPecanRealignJobFunction, rebuildSamJobFunction,
+                                          cPecanRealignJobFunction, rebuildSamJobFunction,
                                           disk=disk, memory=memory).rv()
         realigned_fids.append(realigned_sam)
 
@@ -122,7 +119,7 @@ def cPecanRealignJobFunction(job, global_config, job_config, batch_number,
     return result_fid
 
 
-def rebuildSamJobFunction(job, config, input_samfile_fid, output_label, cPecan_cigar_fileIds):
+def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
     if config["debug"]:
         job.fileStore.logToMaster("[rebuildSamJobFunction]Rebuild chained SAM {chained} with alignments "
                                   "from {cPecan_fids}"
@@ -185,7 +182,7 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, output_label, cPecan_c
     return job.fileStore.writeGlobalFile(temp_sam_filepath)
 
 
-def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_function, followOn_job_function):
+def shardSamJobFunction(job, config, input_samfile_fid, batch_job_function, followOn_job_function):
     # type: (toil.job.Job, dict<string, string>, string, string,
     #        JobFunctionWrappingJob, JobFunctionWrappingJob)
     # get the sam file locally
@@ -275,6 +272,6 @@ def shardSamJobFunction(job, config, input_samfile_fid, output_label, batch_job_
     disk   = (1.1 * input_samfile_fid.size)
     memory = (6 * input_samfile_fid.size)
     rebuildsam_job  = job.addFollowOnJobFn(followOn_job_function, config, input_samfile_fid,
-                                           output_label, cPecan_results, disk=disk, memory=memory)
+                                           cPecan_results, disk=disk, memory=memory)
     rebuilt_sam_fid = rebuildsam_job.rv()
     return rebuilt_sam_fid

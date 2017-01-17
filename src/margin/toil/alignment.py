@@ -48,7 +48,7 @@ def splitLargeAlignment(parent_job, config, input_sam_fid):
     require(os.path.exists(large_sam), "[splitLargeAlignment]Did't download large alignment")
     sam            = pysam.Samfile(large_sam, 'r')  # the big alignment
     small_sam_fids = []                             # list of FileStoreIDs of smaller alignments
-    batch_of_alns  = []                             # list of alignedSegments
+    batch_of_alns  = []                             # batch of alignedSegments
     total_alns     = 0                              # total alignments in the orig. to keep track
     for alignment in sam:
         if len(batch_of_alns) < config["split_alignments_to_this_many"]:  # add it to the batch

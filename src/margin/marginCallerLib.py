@@ -54,21 +54,33 @@ def vcfRead(vcfFile):
             vcfCalls.add((x.CHROM, int(x.POS), str(alt).upper()))
     return vcfCalls
 
-def vcfWrite(referenceFastaFile, refSequences, variantCalls, outputVcfFile):
+def vcfWriteHeader(outfile, referenceFastaFile):
+    vcfFile = open(outfile, "w")
+    vcfFile.write("##fileformat=VCFv4.2\n")
+    vcfFile.write("##fileDate=" + str(datetime.datetime.now().date()).replace("-", "") + "\n")
+    vcfFile.write("##source=marginCaller\n")
+    vcfFile.write("##reference=" + referenceFastaFile + "\n")
+    vcfFile.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\n")
+    vcfFile.close()
+    return
+
+def vcfWrite(referenceFastaFile, refSequences, variantCalls, outputVcfFile, write_header=True):
     #Organise the variant calls
     variantCallsHash = dict(map(lambda x : (x, {}), refSequences))
     for refSeqName, refPosition, base, posteriorProb in variantCalls:
         if not refPosition in variantCallsHash[refSeqName]:
             variantCallsHash[refSeqName][refPosition] = []
         variantCallsHash[refSeqName][refPosition].append((base, posteriorProb))
-    
+
     # For each call write out a VCF line representing the output
+    if write_header:
+        vcfWriteHeader(outputVcfFile, referenceFastaFile)
     vcfFile = open(outputVcfFile, "w")
-    vcfFile.write("##fileformat=VCFv4.2\n")
-    vcfFile.write("##fileDate=" + str(datetime.datetime.now().date()).replace("-", "") + "\n")
-    vcfFile.write("##source=marginCaller\n")
-    vcfFile.write("##reference=" + referenceFastaFile + "\n")
-    vcfFile.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\n")
+    #vcfFile.write("##fileformat=VCFv4.2\n")
+    #vcfFile.write("##fileDate=" + str(datetime.datetime.now().date()).replace("-", "") + "\n")
+    #vcfFile.write("##source=marginCaller\n")
+    #vcfFile.write("##reference=" + referenceFastaFile + "\n")
+    #vcfFile.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\n")
     # iterate through records now
     for refSeqName in refSequences:
         for refPosition, refBase in enumerate(refSequences[refSeqName]):

@@ -10,7 +10,12 @@ from toil_lib.programs import docker_call
 
 from margin.toil.realign import setupLocalFiles, DOCKER_DIR
 from margin.marginCallerLib import \
-    loadHmmSubstitutionMatrix, getNullSubstitutionMatrix, calcBasePosteriorProbs, vcfWrite, vcfRead
+    loadHmmSubstitutionMatrix,\
+    getNullSubstitutionMatrix,\
+    calcBasePosteriorProbs,\
+    vcfWrite,\
+    vcfRead,\
+    vcfWriteHeader
 from margin.utils import getFastaDictionary
 from localFileManager import LocalFile, deliverOutput
 
@@ -72,28 +77,55 @@ def callVariantsOnBatch(job, config, expectations_batch):
     return variant_calls
 
 
+def vcfWriteJobFunction(job, reference_fasta, contig_seqs, variant_calls):
+    vcf_file = job.fileStore.getLocalTempFile()
+    vcfWrite(reference_fasta, contig_seqs, variant_calls, vcf_file, write_header=False)
+    return job.fileStore.writeGlobalFile(vcf_file)
+
+
+def combineVcfShardsJobFunction(job, config, vcf_fids, output_label):
+    workdir    = job.fileStore.getLocalTempDir()
+    output_vcf = LocalFile(workdir=workdir,
+                           filename="{sample}_{out_label}.vcf".format(sample=config["sample_label"],
+                                                                      out_label=output_label))
+    vcfWriteHeader(output_vcf.fullpathGetter(), config["ref"])
+    with open(output_vcf.fullpathGetter(), "a") as fH:
+        for fid in vcf_fids:
+            vcf_shard  = job.fileStore.readGlobalFile(fid)
+            vcf_handle = open(vcf_shard, "r")
+            for line in vcf_handle:
+                fH.write(line)
+            vcf_handle.close()
+            job.fileStore.deleteLocalFile(fid)
+
+    deliverOutput(job, output_vcf, config["output_dir"])
+
+
 def writeAndDeliverVCF(job, config, nested_variant_calls, output_label):
     job.fileStore.logToMaster("[writeAndDeliverVCF]Starting final VCF output")
     contig_seqs = getFastaDictionary(job.fileStore.readGlobalFile(config["reference_FileStoreID"]))
-    workdir     = job.fileStore.getLocalTempDir()
-    output_vcf  = LocalFile(workdir=workdir,
-                            filename="{sample}_{out_label}.vcf".format(sample=config["sample_label"],
-                                                                       out_label=output_label))
+    #workdir     = job.fileStore.getLocalTempDir()
+    #output_vcf  = LocalFile(workdir=workdir,
+    #                        filename="{sample}_{out_label}.vcf".format(sample=config["sample_label"],
+    #                                                                   out_label=output_label))
 
-    ## XXX TODO do this next make all the batches into their own VCF and them combine at the end
-    variant_calls = chain.from_iterable(nested_variant_calls)
+    #variant_calls = chain.from_iterable(nested_variant_calls)
+    vcf_shards = []
+    for variant_call_batch in nested_variant_calls:
+        vcf_shards.append(job.addChildJobFn(vcfWriteJobFunction, config["ref"], contig_seqs, variant_call_batch).rv())
+    
+    job.addFollowOnJobFn(combineVcfShardsJobFunction, config, vcf_shards, output_label)
+    #vcfWrite(config["ref"], contig_seqs, variant_calls, output_vcf.fullpathGetter())
+    #require(os.path.exists(output_vcf.fullpathGetter()),
+    #        "[callVariantsWithAlignedPairsJobFunction]Did not make temp VCF file")
 
-    vcfWrite(config["ref"], contig_seqs, variant_calls, output_vcf.fullpathGetter())
-    require(os.path.exists(output_vcf.fullpathGetter()),
-            "[callVariantsWithAlignedPairsJobFunction]Did not make temp VCF file")
+    #if config["debug"]:
+    #    variant_calls2 = chain.from_iterable(nested_variant_calls)
+    #    vcf_calls = vcfRead(output_vcf.fullpathGetter())
+    #    calls     = set(map(lambda x : (x[0], x[1] + 1, x[2]), list(variant_calls2)))
+    #    require(vcf_calls == calls, "[callVariantsWithAlignedPairsJobFunction]vcf write error")
 
-    if config["debug"]:
-        variant_calls2 = chain.from_iterable(nested_variant_calls)
-        vcf_calls = vcfRead(output_vcf.fullpathGetter())
-        calls     = set(map(lambda x : (x[0], x[1] + 1, x[2]), list(variant_calls2)))
-        require(vcf_calls == calls, "[callVariantsWithAlignedPairsJobFunction]vcf write error")
-
-    deliverOutput(job, output_vcf, config["output_dir"])
+    #deliverOutput(job, output_vcf, config["output_dir"])
 
 
 def marginalizePosteriorProbsJobFunction(job, config, input_samfile_fid, cPecan_alignedPairs_fids):
@@ -130,16 +162,15 @@ def marginalizePosteriorProbsJobFunction(job, config, input_samfile_fid, cPecan_
 def combinePosteriorProbsJobFunction(job, expectations):
     BASES = "ACGT"
     if len(expectations) == 1:
-        return expectations
-    base_expectations = expectations[0]
-    for batch in expectations[1]:
-        for k in batch:
-            if k not in base_expectations:
-                base_expectations[k] = batch[k]
-                continue
-            for b in BASES:
-                base_expectations[k][b] += batch[k][b]
-    return base_expectations
+        return expectations[0]
+    x = expectations[0]
+    y = expectations[1]
+    for k in y:
+        if k not in x.keys():
+            x[k] = dict(zip(BASES, [0.0] * len(BASES)))
+        for b in BASES:
+            x[k][b] += y[k][b]
+    return x
 
 
 def parallelReducePosteriorProbsJobFunction(job, expectation_batches):
@@ -149,17 +180,16 @@ def parallelReducePosteriorProbsJobFunction(job, expectation_batches):
         combined_expectations.append(job.addChildJobFn(combinePosteriorProbsJobFunction,
                                                        expectation_batches[i : i + 2]).rv())
     if len(combined_expectations) > 1:
-        job.addFollowOnJobFn(parallelReducePosteriorProbsJobFunction, combined_expectations)
+        return job.addFollowOnJobFn(parallelReducePosteriorProbsJobFunction, combined_expectations).rv()
     else:
         return combined_expectations[0]
 
 
 def callVariantsWithAlignedPairsJobFunction1(job, config, expectation_batches, output_label):
-    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction1]Reducing {} expectations..."
+    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction1]Reducing {} expectation batches..."
                               "".format(len(expectation_batches)))
     expectations_at_each_position = job.addChildJobFn(parallelReducePosteriorProbsJobFunction,
                                                       expectation_batches).rv()
-    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction1]...Done")
     job.addFollowOnJobFn(callVariantsWithAlignedPairsJobFunction2,
                          config,
                          expectations_at_each_position,

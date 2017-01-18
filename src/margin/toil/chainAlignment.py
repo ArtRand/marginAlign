@@ -190,10 +190,15 @@ def chainSamFile(parent_job, samFile, outputSamFile, readFastqFile, referenceFas
         if readName in alignmentsHash:
             for refID in alignmentsHash[readName].keys():
                 alignedSegments = alignmentsHash[readName][refID]
-                refSeq = refSequences[sam.getrname(refID)]
-                # XXX could make this a child function instead and allow the chaining to be done in ||
-                chainedAlignedSegments.append(mergeChainedAlignedSegments(chainFn(alignedSegments,
-                                              refSeq, readSeq), refSeq, readSeq))
+                try:
+                    refSeq = refSequences[sam.getrname(refID)]
+                    # XXX could make this a child function instead and allow the chaining to be done in ||
+                    chainedAlignedSegments.append(mergeChainedAlignedSegments(chainFn(alignedSegments,
+                                                  refSeq, readSeq), refSeq, readSeq))
+                except KeyError:
+                    parent_job.fileStore.logToMaster("[chainSamFile]Missing reference sequence {}"
+                                                     "".format(sam.getrname(refID)))
+                    continue
             alignmentsHash.pop(readName)
 
     if len(alignmentsHash) != 0:

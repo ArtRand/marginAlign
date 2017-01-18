@@ -55,6 +55,7 @@ def sortResultsByBatch(cPecan_result_fids):
 def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
     smaller_alns   = splitLargeAlignment(job, config, input_samfile_fid)
     realigned_fids = []
+    # get the model here!
 
     for aln in smaller_alns:
         disk   = aln.size + config["reference_FileStoreID"].size
@@ -194,7 +195,7 @@ def shardSamJobFunction(job, config, input_samfile_fid, batch_job_function, foll
     require(os.path.exists(reference_fasta),
             "[shardSamJobFunction]ERROR was not able to download reference from FileStore")
     reference_map = getFastaDictionary(reference_fasta)
-
+    ## XXX TODO XXX get the HMM here and pass it to the shards as as python object
     try:
         sam = pysam.Samfile(local_sam_path, 'r')
     except:

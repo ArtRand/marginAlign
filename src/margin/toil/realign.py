@@ -49,7 +49,7 @@ def setupLocalFiles(parent_job, global_config):
 def sortResultsByBatch(cPecan_result_fids):
     batch_sorted       = sorted(cPecan_result_fids, key=lambda tup: tup[1])
     sorted_cPecan_fids = [x[0] for x in batch_sorted]
-    return sorted_cPecan_fids
+    return [x for x in sorted_cPecan_fids if x is not None]
 
 
 def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
@@ -57,8 +57,8 @@ def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
     realigned_fids = []
 
     for aln in smaller_alns:
-        disk          = aln.size + config["reference_FileStoreID"].size
-        memory        = (6 * aln.size)
+        disk   = aln.size + config["reference_FileStoreID"].size
+        memory = (6 * aln.size)
         realigned_sam = job.addChildJobFn(shardSamJobFunction, config, aln,
                                           cPecanRealignJobFunction, rebuildSamJobFunction,
                                           disk=disk, memory=memory).rv()
@@ -112,11 +112,14 @@ def cPecanRealignJobFunction(job, global_config, job_config, batch_number,
     match_gamma_arg   = "--match_gamma={}".format(global_config["match_gamma"])
     output_arg        = "--output_alignment_file={}".format(DOCKER_DIR + local_output.filenameGetter())
     cPecan_parameters = [input_arg, hmm_arg, gap_gamma_arg, match_gamma_arg, output_arg]
-    tlp.docker_call(tool=cPecan_image, parameters=cPecan_parameters, work_dir=(workdir + "/"))
-
-    # import the result to the FileStore
-    result_fid = job.fileStore.writeGlobalFile(local_output.fullpathGetter(), cleanup=False)
-    return result_fid
+    try:
+        tlp.docker_call(tool=cPecan_image, parameters=cPecan_parameters, work_dir=(workdir + "/"))
+        if not os.path.exists(local_output.fullpathGetter()):
+            return None
+        result_fid = job.fileStore.writeGlobalFile(local_output.fullpathGetter())
+        return result_fid
+    except:
+        return None
 
 
 def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):

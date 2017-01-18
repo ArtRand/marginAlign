@@ -219,6 +219,7 @@ def getExpectationsJobFunction(job, batch_fid, config, working_model_fid,
                 outfile=sys.stdout)
 
     # upload the file to the jobstore
+    # XXX TODO XXX might need try/except guard here
     assert(os.path.exists(expectations_file.fullpathGetter())), "[getExpectationsJobFunction]Didn't find "\
                                                                 "expectations file here"\
                                                                 "{}".format(expectations_file.fullpathGetter())

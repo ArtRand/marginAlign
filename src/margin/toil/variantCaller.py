@@ -1,5 +1,7 @@
-import cPickle
 import os
+import subprocess
+import cPickle
+
 
 from itertools import islice, chain
 
@@ -38,13 +40,14 @@ def calculateAlignedPairsJobFunction(job, global_config, job_config, batch_numbe
     if global_config["no_margin"]:
         cPecan_params.append(margin_arg)
 
-    docker_call(tool=cPecan_image, parameters=cPecan_params, work_dir=(workdir + "/"))
-
-    require(os.path.exists(local_output.fullpathGetter()), "[calculateAlignedPairsJobFunction] "
-            "Cannot find output aligned pairs")
-
-    result_fid = job.fileStore.writeGlobalFile(local_output.fullpathGetter(), cleanup=False)
-    return result_fid
+    try:
+        docker_call(tool=cPecan_image, parameters=cPecan_params, work_dir=(workdir + "/"))
+        if not os.path.exists(local_output.fullpathGetter()):
+            return None
+        result_fid = job.fileStore.writeGlobalFile(local_output.fullpathGetter())
+        return result_fid
+    except:
+        return None
 
 
 def callVariantsOnBatch(job, config, expectations_batch):
@@ -99,6 +102,7 @@ def marginalizePosteriorProbsJobFunction(job, config, input_samfile_fid, cPecan_
     """
     BASES = "ACGT"
     posterior_fids = [x[0] for x in cPecan_alignedPairs_fids]
+    posterior_fids = [x for x in posterior_fids if x is not None]
     job.fileStore.logToMaster("[marginalizePosteriorProbsJobFunction]Collating posteriors have {} files ..."
                               "".format(len(posterior_fids)))
 

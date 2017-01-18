@@ -9,7 +9,7 @@ import uuid
 import cPickle
 from argparse import ArgumentParser
 
-print("running.. RUNNER!! with EM! and ALIGNEDPAIRS2")
+print("running.. RUNNER!! 1/17/16 16:59")
 
 
 def system(cmd):
@@ -81,10 +81,11 @@ def getAlignedPairs(args):
     expectationsOfBasesAtEachPosition = {}
 
     uid = uuid.uuid4().hex
+    temp_posterior_filepath = args.work_dir + "posteriorProbs.{}.txt".format(uid)
     for cig, seq, lab in zip(exonerate_cigars, read_sequences, read_labels):
         fasta_write(file_path=temp_read_fn, seq=seq, seq_label=lab)
-        temp_posterior_filepath = args.work_dir + "posteriorProbs.{}.txt".format(uid)
-        assert(os.path.exists(temp_read_fn))
+        if not os.path.exists(temp_read_fn):
+            continue
 
         if args.no_margin:
             cmd = "echo \"{cig}\" | cPecanRealign {ref} {query} --diagonalExpansion=0 "\
@@ -104,8 +105,10 @@ def getAlignedPairs(args):
         # now collate the reference position expectations
         with open(temp_posterior_filepath, 'r') as fH:
             for refPosition, queryPosition, posteriorProb in map(lambda x : map(float, x.split()), fH):
-                assert posteriorProb <= 1.01
-                assert posteriorProb >= 0.0
+                if posteriorProb > 1.01 or posteriorProb < 0.0:
+                    continue
+                #assert posteriorProb <= 1.01
+                #assert posteriorProb >= 0.0
                 key        = (params["contig_name"], int(refPosition))
                 query_base = seq[int(queryPosition)].upper()
                 if query_base in BASES:  # Could be an N or other wildcard character, which we ignore

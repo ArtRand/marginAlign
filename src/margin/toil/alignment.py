@@ -66,7 +66,7 @@ def splitLargeAlignment(parent_job, config, input_sam_fid):
     if batch_of_alns != []:
         small_sam_fids.append(makeSamfile(batch_of_alns))
 
-    parent_job.fileStore.logToMaster("[splitLargeAlignment]Input alignment has {n} alignments in it"
-                                     "split it into {l} smaller files".format(n=total_alns,
-                                                                              l=len(small_sam_fids)))
+    parent_job.fileStore.logToMaster("[splitLargeAlignment]Input alignment has {N} alignments in it"
+                                     "split it into {n} smaller files".format(N=total_alns,
+                                                                              n=len(small_sam_fids)))
     return small_sam_fids

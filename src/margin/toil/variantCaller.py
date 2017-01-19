@@ -18,7 +18,7 @@ from localFileManager import LocalFile, deliverOutput
 
 
 def calculateAlignedPairsJobFunction(job, global_config, job_config, hmm, batch_number,
-                                     cPecan_image="quay.io/artrand/cpecanrealign"):
+                                     cPecan_image="6d2a71d19d85"):
     workdir, local_hmm, local_output, local_input_obj = setupLocalFiles(job, global_config, hmm)
 
     if global_config["debug"]:
@@ -112,25 +112,24 @@ def marginalizePosteriorProbsJobFunction(job, config, input_samfile_fid, cPecan_
     """reads in the posteriors and marginalizes (reduces) over the columns of the alignment returns a
     python dict with the expectations at each position
     """
-    BASES = "ACGT"
     posterior_fids = [x[0] for x in cPecan_alignedPairs_fids]
     posterior_fids = [x for x in posterior_fids if x is not None]
     job.fileStore.logToMaster("[marginalizePosteriorProbsJobFunction]Collating posteriors have {} files ..."
                               "".format(len(posterior_fids)))
 
     expectations_at_each_position = {}  # stores posterior probs
-    # run through the alignedPairs and collect the expectations for each (contig_name, position) key 
-    # in this dict, this could be sped up hugely, but I'm not sure if it needs to be right now
     for aP_fid in posterior_fids:
         posteriors_file = job.fileStore.readGlobalFile(aP_fid)
-        with open(posteriors_file, 'r') as fH:
-            posteriors = cPickle.load(fH)
-            for k in posteriors:
-                if k not in expectations_at_each_position:
-                    expectations_at_each_position[k] = dict(zip(BASES, [0.0] * len(BASES)))
-                for b in BASES:
-                    expectations_at_each_position[k][b] += posteriors[k][b]
-        ## XXX TODO maybe make this deleteLocalFile?
+        fH = open(posteriors_file, "r")
+        expectations = cPickle.load(fH)  # dict (key: contig<string>, value: expectations<dict<int, list>)
+        for reference in expectations:   # adding a loop here, but there will almost always be just 1 reference
+            if reference not in expectations_at_each_position:
+                expectations_at_each_position[reference] = {}
+            for position in expectations[reference]:  # position is a dict<int, list>
+                if position not in expectations_at_each_position[reference]:
+                    expectations_at_each_position[reference][position] = [0.0, 0.0, 0.0, 0.0]
+                expectations_at_each_position[reference][position] = \
+                    [x + y for x, y, in zip(expectations_at_each_position[reference][position], expectations[reference][position])]
         job.fileStore.deleteGlobalFile(posteriors_file)
 
     job.fileStore.logToMaster("[marginalizePosteriorProbsJobFunction]... done")

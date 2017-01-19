@@ -9,7 +9,7 @@ import uuid
 import cPickle
 from argparse import ArgumentParser
 
-print("running.. RUNNER!! 1/19/16 08:24")
+print("running.. RUNNER!! 1/19/16 09:33")
 
 
 def System(cmd):
@@ -70,6 +70,16 @@ def realign(args):
 
 
 def getAlignedPairs(args):
+    def symbol_number(base):
+        if base == "A":
+            return 0
+        if base == "C":
+            return 1
+        if base == "G":
+            return 2
+        if base == "T":
+            return 3
+
     BASES = "ACGT"
 
     params = getParamsFromInputPickle(args)
@@ -88,7 +98,6 @@ def getAlignedPairs(args):
         if not os.path.exists(temp_read_fn):
             continue
 
-        ## XXX TODO try/except guard here 
         try:
             if args.no_margin:
                 cmd = "echo \"{cig}\" | cPecanRealign {ref} {query} --diagonalExpansion=0 "\
@@ -115,22 +124,19 @@ def getAlignedPairs(args):
             for refPosition, queryPosition, posteriorProb in map(lambda x : map(float, x.split()), fH):
                 if posteriorProb > 1.01 or posteriorProb < 0.0:
                     continue
-                #assert posteriorProb <= 1.01
-                #assert posteriorProb >= 0.0
-                # TODO could make the key the reference position
-                #key        = ()int(refPosition)
-                key        = (params["contig_name"], int(refPosition))
+                key        = int(refPosition)
                 query_base = seq[int(queryPosition)].upper()
                 if query_base in BASES:  # Could be an N or other wildcard character, which we ignore
                     if key not in expectationsOfBasesAtEachPosition:
-                        expectationsOfBasesAtEachPosition[key] = dict(zip(BASES, [0.0] * len(BASES)))
-                    expectationsOfBasesAtEachPosition[key][query_base] += 1.0 if args.no_margin else posteriorProb
+                        expectationsOfBasesAtEachPosition[key] = [0.0, 0.0, 0.0, 0.0]
+                    expectationsOfBasesAtEachPosition[key][symbol_number(query_base)] += 1.0 if args.no_margin else posteriorProb
                 else:
                     continue
 
-
-    with open(args.out_posteriors, "w") as fH:
-        cPickle.dump(expectationsOfBasesAtEachPosition, fH, cPickle.HIGHEST_PROTOCOL)
+    fH = open(args.out_posteriors, "w")
+    contig_expectations = {params["contig_name"] : expectationsOfBasesAtEachPosition}
+    cPickle.dump(contig_expectations, fH, cPickle.HIGHEST_PROTOCOL)
+    fH.close()
 
 
 def em(args):

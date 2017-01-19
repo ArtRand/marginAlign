@@ -168,20 +168,21 @@ def parallelReducePosteriorProbsJobFunction(job, expectation_batches):
 def callVariantsWithAlignedPairsJobFunction1(job, config, expectation_batches, output_label):
     job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction1]Reducing {} expectation batches..."
                               "".format(len(expectation_batches)))
-    BASES = "ACGT"
     # combine the expectations. this is crappy code
-    expectations_at_each_position = expectation_batches[0]  # get the first one to reduce on
-    for batch in expectation_batches[1:]:
-        for k in batch:  # k = (contig, position)
-            if k not in expectations_at_each_position:
-                expectations_at_each_position[k] = batch[k]
-                continue
-            for b in BASES:
-                expectations_at_each_position[k][b] += batch[k][b]
+    posterior_probs_map = {}
+    for batch in expectation_batches:  # keys are contigs, values are dicts<position, [probs]>
+        for reference in batch:
+            if reference not in posterior_probs_map:
+                posterior_probs_map[reference] = {}
+            for position in batch[reference]:
+                if position not in posterior_probs_map[reference]:
+                    posterior_probs_map[reference][position] = [0.0, 0.0, 0.0, 0.0]
+                posterior_probs_map[reference][position] = \
+                    [x + y for x, y in zip(posterior_probs_map[reference][position], batch[reference][position])]
     job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction1]...Done")
     job.addFollowOnJobFn(callVariantsWithAlignedPairsJobFunction2,
                          config,
-                         expectations_at_each_position,
+                         posterior_probs_map,
                          output_label)
 
 

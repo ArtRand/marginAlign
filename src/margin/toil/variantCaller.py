@@ -60,16 +60,18 @@ def callVariantsOnBatch(job, config, expectations_batch):
     error_model   = loadHmmSubstitutionMatrix(job.fileStore.readGlobalFile(config["error_model_FileStoreID"]))
     evo_sub_mat   = getNullSubstitutionMatrix()
 
-    for contig, position in expectations_batch:
-        ref_base     = contig_seqs[contig][position]
-        expectations = expectations_batch[(contig, position)]
-        total_prob   = sum(expectations.values())
-        require(total_prob > 0, "[callVariantsWithAlignedPairsJobFunction]Total prob == 0")
-        posterior_probs = calcBasePosteriorProbs(dict(zip(BASES, map(lambda x : float(expectations[x]) / total_prob, BASES))),
-                                                 ref_base, evo_sub_mat, error_model)
-        for b in BASES:
-            if b != ref_base and posterior_probs[b] >= config["variant_threshold"]:
-                variant_calls.append((contig, position, b, posterior_probs[b]))
+    for contig in expectations_batch:
+        contig_expectations = expectations_batch[contig]
+        for position in expectations_batch[contig]:
+            ref_base   = contig_seqs[contig][position]  # the base at this position in the reference
+            pos_probs  = contig_expectations[position]  # a list [P(A), P(C), P(G), P(T)]
+            total_prob = sum(pos_probs)
+            require(total_prob > 0, "[callVariantsWithAlignedPairsJobFunction]Total prob == 0")
+            posterior_probs = calcBasePosteriorProbs(dict(zip(BASES, map(lambda x : float(x) / total_prob, pos_probs))),
+                                                     ref_base, evo_sub_mat, error_model)
+            for b in BASES:
+                if b != ref_base and posterior_probs[b] >= config["variant_threshold"]:
+                    variant_calls.append((contig, position, b, posterior_probs[b]))
 
     return variant_calls
 

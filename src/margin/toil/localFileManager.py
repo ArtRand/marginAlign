@@ -107,7 +107,7 @@ def urlDownload(parent_job, source_url, destination_file, retry_count=3, s3am_im
 
     if urlparse.urlparse(source_url).scheme == "s3":  # use S3AM
         destination_arg = DOCKER_DIR + destination_file.filenameGetter()
-        s3am_args = ["download", "--download-exists=discard", source_url, destination_arg]
+        s3am_args       = ["download", "--download-exists=discard", source_url, destination_arg]
         for i in xrange(retry_count):
             try:
                 parent_job.fileStore.logToMaster("[urlDownload]Using S3AM to download {source} to {dest}"

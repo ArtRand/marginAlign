@@ -9,7 +9,7 @@ import toil_lib.programs as tlp
 from toil_lib import require
 from alignment import splitLargeAlignment
 from localFileManager import LocalFile, urlDownload, deliverOutput
-from margin.toil.hmm import Hmm
+from margin.toil.hmm import Hmm, downloadHmm
 from margin.utils import samIterator, getExonerateCigarFormatString, getFastaDictionary
 from sonLib.bioio import cigarRead
 
@@ -17,31 +17,30 @@ from sonLib.bioio import cigarRead
 DOCKER_DIR = "/data/"
 
 
-def setupLocalFiles(parent_job, global_config):
+def setupLocalFiles(parent_job, global_config, hmm):
     # uid to be super sure we don't have any file collisions
-    uid = uuid.uuid4().hex
-
-    # need a local directory to pass to docker
-    workdir = parent_job.fileStore.getLocalTempDir()
-    # need the hmm file for cPecan and a local file for the output alignments
-    local_hmm    = LocalFile(workdir=workdir, filename="hmm.{}.txt".format(uid))
-    local_output = LocalFile(workdir=workdir, filename="cPecan_out.{}.txt".format(uid))
+    uid             = uuid.uuid4().hex
+    workdir         = parent_job.fileStore.getLocalTempDir()
+    local_hmm       = LocalFile(workdir=workdir, filename="hmm.{}.txt".format(uid))
+    local_output    = LocalFile(workdir=workdir, filename="cPecan_out.{}.txt".format(uid))
+    local_input_obj = LocalFile(workdir=workdir, filename="cPecanInput.{}.pkl".format(uid))
+    hmm.write(local_hmm.fullpathGetter())
 
     # copy the hmm file from the FileStore to local workdir
-    if global_config["EM"]:  # if we did EM, use the trained model
-        urlDownload(parent_job=parent_job,
-                    source_url=Hmm.modelFilename(global_config, True),
-                    destination_file=local_hmm)
-        require(os.path.exists(local_hmm.fullpathGetter()), "[setupLocalFiles]Didn't download trained model")
-    else:
+    #if global_config["EM"]:  # if we did EM, use the trained model
+        #urlDownload(parent_job=parent_job,
+        #            source_url=Hmm.modelFilename(global_config, True),
+        #            destination_file=local_hmm)
+    #    require(os.path.exists(local_hmm.fullpathGetter()), "[setupLocalFiles]Didn't download trained model")
+    #else:
         # we didn't make a trained model, so we need a user-inputted one, read that from the 
         # fileStore
-        require(global_config["input_hmm_FileStoreID"],
-                "[setupLocalFiles]Need to provide a HMM for alignment or perform alignment/EM")
-        parent_job.fileStore.readGlobalFile(fileStoreID=global_config["input_hmm_FileStoreID"],
-                                            userPath=local_hmm.fullpathGetter())
+    #    require(global_config["input_hmm_FileStoreID"],
+    #            "[setupLocalFiles]Need to provide a HMM for alignment or perform alignment/EM")
+    #parent_job.fileStore.readGlobalFile(fileStoreID=global_config["input_hmm_FileStoreID"],
+    #                                    userPath=local_hmm.fullpathGetter())
+    #parent_job.fileStore.readGlobalFile(fileStoreID=hmm_fid, userPath=local_hmm.fullpathGetter())
 
-    local_input_obj = LocalFile(workdir=workdir, filename="cPecanInput.{}.pkl".format(uid))
 
     return workdir, local_hmm, local_output, local_input_obj
 
@@ -53,14 +52,14 @@ def sortResultsByBatch(cPecan_result_fids):
 
 
 def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
-    smaller_alns   = splitLargeAlignment(job, config, input_samfile_fid)
-    realigned_fids = []
-    # get the model here!
+    smaller_alns        = splitLargeAlignment(job, config, input_samfile_fid)
+    realigned_fids      = []
+    hidden_markov_model = downloadHmm(job, config)
 
     for aln in smaller_alns:
         disk   = aln.size + config["reference_FileStoreID"].size
         memory = (6 * aln.size)
-        realigned_sam = job.addChildJobFn(shardSamJobFunction, config, aln,
+        realigned_sam = job.addChildJobFn(shardSamJobFunction, config, aln, hidden_markov_model,
                                           cPecanRealignJobFunction, rebuildSamJobFunction,
                                           disk=disk, memory=memory).rv()
         realigned_fids.append(realigned_sam)
@@ -89,12 +88,12 @@ def combineRealignedSamfilesJobFunction(job, config, input_samfile_fid, realigne
     deliverOutput(job, output_sam, config["output_dir"])
 
 
-def cPecanRealignJobFunction(job, global_config, job_config, batch_number,
+def cPecanRealignJobFunction(job, global_config, job_config, hmm, batch_number,
                              cPecan_image="quay.io/artrand/cpecanrealign"):
     # type: (toil.job.Job, dict<string, parameters>, dict<string, string>)
     """Runs Docker-ized cPecan HMM
     """
-    workdir, local_hmm, local_output, local_input_obj = setupLocalFiles(job, global_config)
+    workdir, local_hmm, local_output, local_input_obj = setupLocalFiles(job, global_config, hmm)
     if global_config["debug"]:
         job.fileStore.logToMaster("[cPecanRealignJobFunction]Batch {batch} using HMM from {model} "
                                   "and EM is {em}".format(batch=batch_number,
@@ -186,16 +185,13 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
     return job.fileStore.writeGlobalFile(temp_sam_filepath)
 
 
-def shardSamJobFunction(job, config, input_samfile_fid, batch_job_function, followOn_job_function):
-    # type: (toil.job.Job, dict<string, string>, string, string,
-    #        JobFunctionWrappingJob, JobFunctionWrappingJob)
+def shardSamJobFunction(job, config, input_samfile_fid, hmm, batch_job_function, followOn_job_function):
     # get the sam file locally
     local_sam_path  = job.fileStore.readGlobalFile(input_samfile_fid)
     reference_fasta = job.fileStore.readGlobalFile(config["reference_FileStoreID"])
     require(os.path.exists(reference_fasta),
             "[shardSamJobFunction]ERROR was not able to download reference from FileStore")
     reference_map = getFastaDictionary(reference_fasta)
-    ## XXX TODO XXX get the HMM here and pass it to the shards as as python object
     try:
         sam = pysam.Samfile(local_sam_path, 'r')
     except:
@@ -222,8 +218,8 @@ def shardSamJobFunction(job, config, input_samfile_fid, batch_job_function, foll
 
             # disk requirement <= cigars + query_seqs + contig_seq + result
             # mem requirement <= alignment
-            result_id = job.addChildJobFn(batch_job_function, config, cPecan_config, batch_number,
-                                          disk=config["reference_FileStoreID"].size).rv()
+            result_id = job.addChildJobFn(batch_job_function, config, cPecan_config, hmm,
+                                          batch_number, disk=config["reference_FileStoreID"].size).rv()
             result_fids.append((result_id, batch_number))
             return batch_number + 1
         else:  # mostly for initial conditions, do nothing

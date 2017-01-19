@@ -1,7 +1,12 @@
 """hmm.py Hidden Markov Model class
 """
 import math
+import uuid
 import random
+
+from toil_lib import require
+
+from localFileManager import LocalFile, urlDownload
 
 SYMBOL_NUMBER = 4
 
@@ -102,3 +107,15 @@ class Hmm:
             return global_config["output_dir"] + model_filename
         else:
             return model_filename
+
+
+def downloadHmm(parent_job, config):
+    if config["EM"]:
+        hmm_file = LocalFile(workdir=parent_job.fileStore.getLocalTempDir(), filename=uuid.uuid4().hex)
+        urlDownload(parent_job, Hmm.modelFilename(config, True), hmm_file)
+        return Hmm.loadHmm(hmm_file.fullpathGetter())
+    else:
+        require(config["input_hmm_FileStoreID"],
+                "[realignSamFileJobFunction]Need to provide a HMM for alignment or perform alignment/EM")
+        hmm_file = parent_job.fileStore.readGlobalFile(config["input_hmm_FileStoreID"])
+        return Hmm.loadHmm(hmm_file)

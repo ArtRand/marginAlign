@@ -1,9 +1,7 @@
 import os
-import subprocess
 import cPickle
 
-
-from itertools import islice, chain
+from itertools import islice
 
 from toil_lib import require
 from toil_lib.programs import docker_call
@@ -14,16 +12,14 @@ from margin.marginCallerLib import \
     getNullSubstitutionMatrix,\
     calcBasePosteriorProbs,\
     vcfWrite,\
-    vcfRead,\
     vcfWriteHeader
 from margin.utils import getFastaDictionary
 from localFileManager import LocalFile, deliverOutput
 
 
-def calculateAlignedPairsJobFunction(job, global_config, job_config, batch_number,
+def calculateAlignedPairsJobFunction(job, global_config, job_config, hmm, batch_number,
                                      cPecan_image="quay.io/artrand/cpecanrealign"):
-    # UID to avoid file collisions
-    workdir, local_hmm, local_output, local_input_obj = setupLocalFiles(job, global_config)
+    workdir, local_hmm, local_output, local_input_obj = setupLocalFiles(job, global_config, hmm)
 
     if global_config["debug"]:
         job.fileStore.logToMaster("[calculateAlignedPairsJobFunction]Getting aligned pairs "
@@ -42,6 +38,7 @@ def calculateAlignedPairsJobFunction(job, global_config, job_config, batch_numbe
     output_arg = "--output_posteriors={}".format(DOCKER_DIR + local_output.filenameGetter())
     margin_arg = "--no_margin"
     cPecan_params = [aP_arg, input_arg, hmm_file, output_arg]
+    
     if global_config["no_margin"]:
         cPecan_params.append(margin_arg)
 

@@ -17,7 +17,7 @@ DOCKER_DIR = "/data/"
 
 
 def performBaumWelchOnSamJobFunction(job, config, input_samfile_fid):
-    disk   = 2.5 * input_samfile_fid.size
+    disk   = int(2.5 * input_samfile_fid.size)
     memory = 6 * input_samfile_fid.size
     if config["input_hmm_FileStoreID"] is not None or not config["random_start"]:  # normal EM
         job.fileStore.logToMaster("[performBaumWelchOnSamJobFunction]Asking for disk {disk} and "
@@ -213,7 +213,8 @@ def getExpectationsJobFunction(job, batch_fid, config, working_model_fid,
     expectations_arg = "--expectations={}".format(DOCKER_DIR + expectations_file.filenameGetter())
     cPecan_params    = [em_arg, aln_arg, reference_arg, query_arg, hmm_arg, expectations_arg]
 
-    docker_call(tool=cPecan_image,
+    docker_call(job=job,
+                tool=cPecan_image,
                 parameters=cPecan_params,
                 work_dir=local_files.workDir(),
                 outfile=sys.stdout)

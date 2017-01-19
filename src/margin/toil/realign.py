@@ -5,11 +5,11 @@ import os
 import pysam
 import uuid
 import cPickle
-import toil_lib.programs as tlp
 from toil_lib import require
+from toil_lib.programs import docker_call
 from alignment import splitLargeAlignment
-from localFileManager import LocalFile, urlDownload, deliverOutput
-from margin.toil.hmm import Hmm, downloadHmm
+from localFileManager import LocalFile, deliverOutput
+from margin.toil.hmm import downloadHmm
 from margin.utils import samIterator, getExonerateCigarFormatString, getFastaDictionary
 from sonLib.bioio import cigarRead
 
@@ -25,23 +25,6 @@ def setupLocalFiles(parent_job, global_config, hmm):
     local_output    = LocalFile(workdir=workdir, filename="cPecan_out.{}.txt".format(uid))
     local_input_obj = LocalFile(workdir=workdir, filename="cPecanInput.{}.pkl".format(uid))
     hmm.write(local_hmm.fullpathGetter())
-
-    # copy the hmm file from the FileStore to local workdir
-    #if global_config["EM"]:  # if we did EM, use the trained model
-        #urlDownload(parent_job=parent_job,
-        #            source_url=Hmm.modelFilename(global_config, True),
-        #            destination_file=local_hmm)
-    #    require(os.path.exists(local_hmm.fullpathGetter()), "[setupLocalFiles]Didn't download trained model")
-    #else:
-        # we didn't make a trained model, so we need a user-inputted one, read that from the 
-        # fileStore
-    #    require(global_config["input_hmm_FileStoreID"],
-    #            "[setupLocalFiles]Need to provide a HMM for alignment or perform alignment/EM")
-    #parent_job.fileStore.readGlobalFile(fileStoreID=global_config["input_hmm_FileStoreID"],
-    #                                    userPath=local_hmm.fullpathGetter())
-    #parent_job.fileStore.readGlobalFile(fileStoreID=hmm_fid, userPath=local_hmm.fullpathGetter())
-
-
     return workdir, local_hmm, local_output, local_input_obj
 
 
@@ -113,7 +96,7 @@ def cPecanRealignJobFunction(job, global_config, job_config, hmm, batch_number,
     output_arg        = "--output_alignment_file={}".format(DOCKER_DIR + local_output.filenameGetter())
     cPecan_parameters = [input_arg, hmm_arg, gap_gamma_arg, match_gamma_arg, output_arg]
     try:
-        tlp.docker_call(tool=cPecan_image, parameters=cPecan_parameters, work_dir=(workdir + "/"))
+        docker_call(job=job, tool=cPecan_image, parameters=cPecan_parameters, work_dir=(workdir + "/"))
         if not os.path.exists(local_output.fullpathGetter()):
             return None
         result_fid = job.fileStore.writeGlobalFile(local_output.fullpathGetter())
@@ -216,8 +199,8 @@ def shardSamJobFunction(job, config, input_samfile_fid, hmm, batch_job_function,
                 "contig_name"      : contig_name,
             }
 
-            # disk requirement <= cigars + query_seqs + contig_seq + result
-            # mem requirement <= alignment
+            # disk requirement = cigars + query_seqs + contig_seq + result
+            # mem requirement = alignment
             result_id = job.addChildJobFn(batch_job_function, config, cPecan_config, hmm,
                                           batch_number, disk=config["reference_FileStoreID"].size).rv()
             result_fids.append((result_id, batch_number))
@@ -269,7 +252,7 @@ def shardSamJobFunction(job, config, input_samfile_fid, hmm, batch_job_function,
     job.fileStore.logToMaster("[shardSamJobFunction]Made {} batches".format(batch_number + 1))
     # disk requirement <= alignment + exonerate cigars
     # memory requirement <= alignment 
-    disk   = (1.1 * input_samfile_fid.size)
+    disk   = (10 * input_samfile_fid.size)
     memory = (6 * input_samfile_fid.size)
     rebuildsam_job  = job.addFollowOnJobFn(followOn_job_function, config, input_samfile_fid,
                                            cPecan_results, disk=disk, memory=memory)

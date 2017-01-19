@@ -9,10 +9,10 @@ import uuid
 import cPickle
 from argparse import ArgumentParser
 
-print("running.. RUNNER!! 1/17/16 16:59")
+print("running.. RUNNER!! 1/19/16 08:24")
 
 
-def system(cmd):
+def System(cmd):
     sts = subprocess.call(cmd, shell=True, bufsize=-1, stdout=sys.stdout, stderr=sys.stderr)
     if sts != 0:
         raise RuntimeError("Command: %s exited with non-zero status %i" % (cmd, sts))
@@ -22,19 +22,20 @@ def system(cmd):
 def fasta_write(file_path, seq, seq_label):
     # type (string, string, string)
     chunk_size = 100
-    with open(file_path, 'w') as fH:
-        fH.write(">{header}\n".format(header=seq_label))
-        for i in xrange(0, len(seq), chunk_size):
-            fH.write("%s\n" % seq[i : i + chunk_size])
+    fH         = open(file_path, "w")
+    fH.write(">{header}\n".format(header=seq_label))
+    for i in xrange(0, len(seq), chunk_size):
+        fH.write("%s\n" % seq[i : i + chunk_size])
+    fH.close()
 
 
 def getParamsFromInputPickle(args):
     # check input
     assert(args.input_params is not None), "[runner.py::realign]No input arg (should be a pickle)"
 
-    with open(args.input_params, 'r') as fH:
-        params = cPickle.load(fH)
-
+    fH = open(args.input_params, "r")
+    params = cPickle.load(fH)
+    fH.close()
     return params
 
 
@@ -87,17 +88,24 @@ def getAlignedPairs(args):
         if not os.path.exists(temp_read_fn):
             continue
 
-        if args.no_margin:
-            cmd = "echo \"{cig}\" | cPecanRealign {ref} {query} --diagonalExpansion=0 "\
-                  "--splitMatrixBiggerThanThis=1 --rescoreOriginalAlignment "\
-                  "--outputPosteriorProbs={probs}"
-            os.system(cmd.format(cig=cig, ref=temp_reference_fn, query=temp_read_fn,
-                                 probs=temp_posterior_filepath))
-        else:
-            cmd = "echo \"{cig}\" | cPecanRealign {ref} {query} --diagonalExpansion=10 "\
-                  "--splitMatrixBiggerThanThis=100 --outputAllPosteriorProbs={probs} --loadHmm={hmm}"
-            os.system(cmd.format(cig=cig, ref=temp_reference_fn, query=temp_read_fn,
-                                 probs=temp_posterior_filepath, hmm=args.hmm_file))
+        ## XXX TODO try/except guard here 
+        try:
+            if args.no_margin:
+                cmd = "echo \"{cig}\" | cPecanRealign {ref} {query} --diagonalExpansion=0 "\
+                      "--splitMatrixBiggerThanThis=1 --rescoreOriginalAlignment "\
+                      "--outputPosteriorProbs={probs}"
+                System(cmd.format(cig=cig, ref=temp_reference_fn, query=temp_read_fn,
+                                  probs=temp_posterior_filepath))
+            else:
+                cmd = "echo \"{cig}\" | cPecanRealign {ref} {query} --diagonalExpansion=10 "\
+                      "--splitMatrixBiggerThanThis=100 --outputAllPosteriorProbs={probs} --loadHmm={hmm}"
+                System(cmd.format(cig=cig, ref=temp_reference_fn, query=temp_read_fn,
+                                  probs=temp_posterior_filepath, hmm=args.hmm_file))
+
+        except RuntimeError:
+            if os.path.exists(temp_posterior_filepath):
+                os.remove(temp_posterior_filepath)
+            continue
 
         if not os.path.exists(temp_posterior_filepath):
             continue
@@ -109,6 +117,8 @@ def getAlignedPairs(args):
                     continue
                 #assert posteriorProb <= 1.01
                 #assert posteriorProb >= 0.0
+                # TODO could make the key the reference position
+                #key        = ()int(refPosition)
                 key        = (params["contig_name"], int(refPosition))
                 query_base = seq[int(queryPosition)].upper()
                 if query_base in BASES:  # Could be an N or other wildcard character, which we ignore
@@ -117,6 +127,7 @@ def getAlignedPairs(args):
                     expectationsOfBasesAtEachPosition[key][query_base] += 1.0 if args.no_margin else posteriorProb
                 else:
                     continue
+
 
     with open(args.out_posteriors, "w") as fH:
         cPickle.dump(expectationsOfBasesAtEachPosition, fH, cPickle.HIGHEST_PROTOCOL)

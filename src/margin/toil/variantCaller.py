@@ -38,12 +38,12 @@ def calculateAlignedPairsJobFunction(job, global_config, job_config, hmm, batch_
     output_arg = "--output_posteriors={}".format(DOCKER_DIR + local_output.filenameGetter())
     margin_arg = "--no_margin"
     cPecan_params = [aP_arg, input_arg, hmm_file, output_arg]
-    
+
     if global_config["no_margin"]:
         cPecan_params.append(margin_arg)
 
     try:
-        docker_call(tool=cPecan_image, parameters=cPecan_params, work_dir=(workdir + "/"))
+        docker_call(job=job, tool=cPecan_image, parameters=cPecan_params, work_dir=(workdir + "/"))
         if not os.path.exists(local_output.fullpathGetter()):
             return None
         result_fid = job.fileStore.writeGlobalFile(local_output.fullpathGetter())
@@ -101,28 +101,10 @@ def combineVcfShardsJobFunction(job, config, vcf_fids, output_label):
 def writeAndDeliverVCF(job, config, nested_variant_calls, output_label):
     job.fileStore.logToMaster("[writeAndDeliverVCF]Starting final VCF output")
     contig_seqs = getFastaDictionary(job.fileStore.readGlobalFile(config["reference_FileStoreID"]))
-    #workdir     = job.fileStore.getLocalTempDir()
-    #output_vcf  = LocalFile(workdir=workdir,
-    #                        filename="{sample}_{out_label}.vcf".format(sample=config["sample_label"],
-    #                                                                   out_label=output_label))
-
-    #variant_calls = chain.from_iterable(nested_variant_calls)
     vcf_shards = []
     for variant_call_batch in nested_variant_calls:
         vcf_shards.append(job.addChildJobFn(vcfWriteJobFunction, config["ref"], contig_seqs, variant_call_batch).rv())
-    
     job.addFollowOnJobFn(combineVcfShardsJobFunction, config, vcf_shards, output_label)
-    #vcfWrite(config["ref"], contig_seqs, variant_calls, output_vcf.fullpathGetter())
-    #require(os.path.exists(output_vcf.fullpathGetter()),
-    #        "[callVariantsWithAlignedPairsJobFunction]Did not make temp VCF file")
-
-    #if config["debug"]:
-    #    variant_calls2 = chain.from_iterable(nested_variant_calls)
-    #    vcf_calls = vcfRead(output_vcf.fullpathGetter())
-    #    calls     = set(map(lambda x : (x[0], x[1] + 1, x[2]), list(variant_calls2)))
-    #    require(vcf_calls == calls, "[callVariantsWithAlignedPairsJobFunction]vcf write error")
-
-    #deliverOutput(job, output_vcf, config["output_dir"])
 
 
 def marginalizePosteriorProbsJobFunction(job, config, input_samfile_fid, cPecan_alignedPairs_fids):
@@ -185,8 +167,17 @@ def parallelReducePosteriorProbsJobFunction(job, expectation_batches):
 def callVariantsWithAlignedPairsJobFunction1(job, config, expectation_batches, output_label):
     job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction1]Reducing {} expectation batches..."
                               "".format(len(expectation_batches)))
-    expectations_at_each_position = job.addChildJobFn(parallelReducePosteriorProbsJobFunction,
-                                                      expectation_batches).rv()
+    BASES = "ACGT"
+    # combine the expectations. this is crappy code
+    expectations_at_each_position = expectation_batches[0]  # get the first one to reduce on
+    for batch in expectation_batches[1:]:
+        for k in batch:  # k = (contig, position)
+            if k not in expectations_at_each_position:
+                expectations_at_each_position[k] = batch[k]
+                continue
+            for b in BASES:
+                expectations_at_each_position[k][b] += batch[k][b]
+    job.fileStore.logToMaster("[callVariantsWithAlignedPairsJobFunction1]...Done")
     job.addFollowOnJobFn(callVariantsWithAlignedPairsJobFunction2,
                          config,
                          expectations_at_each_position,

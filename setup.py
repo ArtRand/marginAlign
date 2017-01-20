@@ -12,5 +12,6 @@ setup(name="marginAlign",
       packages=find_packages("src"),
       install_requires=["PyVCF==0.6.7",
                         "numpy==1.9.2",
-                        "pysam==0.8.2.1"]
+                        "pysam==0.8.2.1",
+                        "pandas==0.18.1"]
       )

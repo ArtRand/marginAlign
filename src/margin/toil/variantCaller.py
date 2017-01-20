@@ -7,6 +7,7 @@ from toil_lib import require
 from toil_lib.programs import docker_call
 
 from margin.toil.realign import setupLocalFiles, DOCKER_DIR
+from margin.toil.variantCall import VariantCalls
 from margin.marginCallerLib import \
     loadHmmSubstitutionMatrix,\
     getNullSubstitutionMatrix,\
@@ -53,9 +54,8 @@ def calculateAlignedPairsJobFunction(job, global_config, job_config, hmm, batch_
 
 
 def callVariantsOnBatch(job, config, expectations_batch):
-    job.fileStore.logToMaster("[callVariantsOnBatch]working on a batch of expectations")
     BASES         = "ACGT"
-    variant_calls = []
+    variant_calls = VariantCalls()
     contig_seqs   = getFastaDictionary(job.fileStore.readGlobalFile(config["reference_FileStoreID"]))
     error_model   = loadHmmSubstitutionMatrix(job.fileStore.readGlobalFile(config["error_model_FileStoreID"]))
     evo_sub_mat   = getNullSubstitutionMatrix()
@@ -71,7 +71,7 @@ def callVariantsOnBatch(job, config, expectations_batch):
                                                      ref_base, evo_sub_mat, error_model)
             for b in BASES:
                 if b != ref_base and posterior_probs[b] >= config["variant_threshold"]:
-                    variant_calls.append((contig, position, b, posterior_probs[b]))
+                    variant_calls.Add(contig, position, b, posterior_probs[b])
 
     return variant_calls
 
@@ -120,6 +120,7 @@ def writeAndDeliverVCF(job, config, nested_variant_calls, output_label):
     job.addFollowOnJobFn(combineVcfShardsJobFunction, config, vcf_shards, output_label)
 
 
+# FIXME rename this function because it returns variant calls now
 def marginalizePosteriorProbsJobFunction(job, config, alignment_shard, cPecan_alignedPairs_fids):
     # type(toil.job.Job, dict, FileStoreID, list<FileStoreId>) n.b. the alignment_shard is ignored
     """reads in the posteriors and marginalizes (reduces) over the columns of the alignment returns a
@@ -151,9 +152,9 @@ def marginalizePosteriorProbsJobFunction(job, config, alignment_shard, cPecan_al
     job.fileStore.logToMaster("[marginalizePosteriorProbsJobFunction]... done")
 
     variant_calls = job.addChildJobFn(callVariantsOnBatch, config, expectations_at_each_position).rv()
-    write_vcf_job = job.addFollowOnJobFn(vcfWriteJobFunction2, config, variant_calls)
-    batch_vcf     = write_vcf_job.rv()
-    return batch_vcf
+    #write_vcf_job = job.addFollowOnJobFn(vcfWriteJobFunction2, config, variant_calls)
+    #batch_vcf     = write_vcf_job.rv()
+    return variant_calls  # a VariantCalls object
 
 
 def combinePosteriorProbsJobFunction(job, expectations):

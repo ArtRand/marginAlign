@@ -112,7 +112,7 @@ def urlDownload(parent_job, source_url, destination_file, retry_count=3, s3am_im
             try:
                 parent_job.fileStore.logToMaster("[urlDownload]Using S3AM to download {source} to {dest}"
                                                  "".format(source=source_url, dest=destination_file.fullpathGetter()))
-                docker_call(tool=s3am_image, parameters=s3am_args, work_dir=(destination_file.workdirGetter() + "/"))
+                docker_call(job=parent_job, tool=s3am_image, parameters=s3am_args, work_dir=(destination_file.workdirGetter() + "/"))
             except subprocess.CalledProcessError:
                 parent_job.fileStore.logToMaster("[urlDownload]S3AM failed with args {}".format(s3am_args.__str__()))
             else:
@@ -157,7 +157,7 @@ def deliverOutput(parent_job, deliverable_file, destination, retry_count=3,
 
         for i in xrange(retry_count):
             try:
-                docker_call(tool=s3am_image, parameters=s3am_args, work_dir=(deliverable_file.workdirGetter() + "/"))
+                docker_call(job=parent_job, tool=s3am_image, parameters=s3am_args, work_dir=(deliverable_file.workdirGetter() + "/"))
             except subprocess.CalledProcessError:
                 parent_job.fileStore.logToMaster("[deliverOutput]S3AM failed with args {}".format(s3am_args.__str__()))
             else:

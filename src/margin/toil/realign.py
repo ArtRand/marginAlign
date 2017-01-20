@@ -40,8 +40,8 @@ def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
     hidden_markov_model = downloadHmm(job, config)
 
     for aln in smaller_alns:
-        disk   = aln.size + config["reference_FileStoreID"].size
-        memory = (6 * aln.size)
+        disk   = input_samfile_fid.size + config["reference_FileStoreID"].size
+        memory = (6 * input_samfile_fid.size)
         realigned_sam = job.addChildJobFn(shardSamJobFunction, config, aln, hidden_markov_model,
                                           cPecanRealignJobFunction, rebuildSamJobFunction,
                                           disk=disk, memory=memory).rv()
@@ -54,14 +54,14 @@ def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
 def combineRealignedSamfilesJobFunction(job, config, input_samfile_fid, realigned_fids, output_label):
     original_sam      = job.fileStore.readGlobalFile(input_samfile_fid)
     sam               = pysam.Samfile(original_sam, "r")
-    filename          = "{sample}_{out_label}.sam".format(sample=config["sample_label"], out_label=output_label)
+    filename          = "{sample}_{out_label}.bam".format(sample=config["sample_label"], out_label=output_label)
     output_sam        = LocalFile(workdir=job.fileStore.getLocalTempDir(), filename=filename)
-    output_sam_handle = pysam.Samfile(output_sam.fullpathGetter(), "wh", template=sam)
+    output_sam_handle = pysam.Samfile(output_sam.fullpathGetter(), "wb", template=sam)
     sam.close()
 
     for fid in realigned_fids:
         local_copy = job.fileStore.readGlobalFile(fid)
-        samfile    = pysam.Samfile(local_copy, "r")
+        samfile    = pysam.Samfile(local_copy, "rb")
         for line in samfile:
             output_sam_handle.write(line)
         samfile.close()
@@ -105,11 +105,12 @@ def cPecanRealignJobFunction(job, global_config, job_config, hmm, batch_number,
         return None
 
 
-def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
+def rebuildSamJobFunction(job, config, alignment_shard, cPecan_cigar_fileIds):
+    alignment_fid = alignment_shard.FileStoreID
     if config["debug"]:
         job.fileStore.logToMaster("[rebuildSamJobFunction]Rebuild chained SAM {chained} with alignments "
                                   "from {cPecan_fids}"
-                                  "".format(chained=input_samfile_fid,
+                                  "".format(chained=alignment_fid,
                                             cPecan_fids=cPecan_cigar_fileIds.__str__()))
 
     # iterates over the files, downloads them, and iterates over the alignments 
@@ -122,7 +123,7 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
             job.fileStore.deleteLocalFile(fid)
 
     # download the chained sam
-    local_sam_path = job.fileStore.readGlobalFile(input_samfile_fid)
+    local_sam_path = job.fileStore.readGlobalFile(alignment_fid)
     try:
         sam = pysam.Samfile(local_sam_path, 'r')
     except:
@@ -133,7 +134,7 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
     sorted_cPecan_fids = sortResultsByBatch(cPecan_cigar_fileIds)
 
     temp_sam_filepath = job.fileStore.getLocalTempFileName()
-    output_sam_handle = pysam.Samfile(temp_sam_filepath, 'wh', template=sam)
+    output_sam_handle = pysam.Samfile(temp_sam_filepath, 'wb', template=sam)
 
     for aR, pA in zip(samIterator(sam), cigar_iterator()):
         ops = []
@@ -168,9 +169,10 @@ def rebuildSamJobFunction(job, config, input_samfile_fid, cPecan_cigar_fileIds):
     return job.fileStore.writeGlobalFile(temp_sam_filepath)
 
 
-def shardSamJobFunction(job, config, input_samfile_fid, hmm, batch_job_function, followOn_job_function):
+def shardSamJobFunction(job, config, alignment_shard, hmm, batch_job_function, followOn_job_function):
     # get the sam file locally
-    local_sam_path  = job.fileStore.readGlobalFile(input_samfile_fid)
+    alignment_fid   = alignment_shard.FileStoreID
+    local_sam_path  = job.fileStore.readGlobalFile(alignment_fid)
     reference_fasta = job.fileStore.readGlobalFile(config["reference_FileStoreID"])
     require(os.path.exists(reference_fasta),
             "[shardSamJobFunction]ERROR was not able to download reference from FileStore")
@@ -252,9 +254,8 @@ def shardSamJobFunction(job, config, input_samfile_fid, hmm, batch_job_function,
     job.fileStore.logToMaster("[shardSamJobFunction]Made {} batches".format(batch_number + 1))
     # disk requirement <= alignment + exonerate cigars
     # memory requirement <= alignment 
-    disk   = (10 * input_samfile_fid.size)
-    memory = (6 * input_samfile_fid.size)
-    rebuildsam_job  = job.addFollowOnJobFn(followOn_job_function, config, input_samfile_fid,
-                                           cPecan_results, disk=disk, memory=memory)
-    rebuilt_sam_fid = rebuildsam_job.rv()
-    return rebuilt_sam_fid
+    disk         = (10 * alignment_fid.size)
+    memory       = (6 * alignment_fid.size)
+    reduce_job   = job.addFollowOnJobFn(followOn_job_function, config, alignment_shard, cPecan_results, disk=disk, memory=memory)
+    batch_result = reduce_job.rv()
+    return batch_result

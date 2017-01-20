@@ -72,15 +72,9 @@ def vcfWrite(referenceFastaFile, refSequences, variantCalls, outputVcfFile, writ
             variantCallsHash[refSeqName][refPosition] = []
         variantCallsHash[refSeqName][refPosition].append((base, posteriorProb))
 
-    # For each call write out a VCF line representing the output
     if write_header:
         vcfWriteHeader(outputVcfFile, referenceFastaFile)
     vcfFile = open(outputVcfFile, "w")
-    #vcfFile.write("##fileformat=VCFv4.2\n")
-    #vcfFile.write("##fileDate=" + str(datetime.datetime.now().date()).replace("-", "") + "\n")
-    #vcfFile.write("##source=marginCaller\n")
-    #vcfFile.write("##reference=" + referenceFastaFile + "\n")
-    #vcfFile.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\n")
     # iterate through records now
     for refSeqName in refSequences:
         for refPosition, refBase in enumerate(refSequences[refSeqName]):

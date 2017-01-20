@@ -82,6 +82,17 @@ def vcfWriteJobFunction(job, reference_fasta, contig_seqs, variant_calls):
     return job.fileStore.writeGlobalFile(vcf_file)
 
 
+def vcfWriteJobFunction2(job, config, variant_calls):
+    contig_seqs = getFastaDictionary(job.fileStore.readGlobalFile(config["reference_FileStoreID"]))
+    vcf_file = job.fileStore.getLocalTempFile()
+    vcfWrite(config["ref"],  # the URL to the reference we used
+             contig_seqs,
+             variant_calls,
+             vcf_file,
+             write_header=False)
+    return job.fileStore.writeGlobalFile(vcf_file)
+
+
 def combineVcfShardsJobFunction(job, config, vcf_fids, output_label):
     workdir    = job.fileStore.getLocalTempDir()
     output_vcf = LocalFile(workdir=workdir,
@@ -109,8 +120,8 @@ def writeAndDeliverVCF(job, config, nested_variant_calls, output_label):
     job.addFollowOnJobFn(combineVcfShardsJobFunction, config, vcf_shards, output_label)
 
 
-def marginalizePosteriorProbsJobFunction(job, config, input_samfile_fid, cPecan_alignedPairs_fids):
-    # type(toil.job.Job, dict, FileStoreID, list<FileStoreId>) n.b. the input_samfile_fid is ignored
+def marginalizePosteriorProbsJobFunction(job, config, alignment_shard, cPecan_alignedPairs_fids):
+    # type(toil.job.Job, dict, FileStoreID, list<FileStoreId>) n.b. the alignment_shard is ignored
     """reads in the posteriors and marginalizes (reduces) over the columns of the alignment returns a
     python dict with the expectations at each position
     """
@@ -123,20 +134,26 @@ def marginalizePosteriorProbsJobFunction(job, config, input_samfile_fid, cPecan_
     for aP_fid in posterior_fids:
         posteriors_file = job.fileStore.readGlobalFile(aP_fid)
         fH = open(posteriors_file, "r")
-        expectations = cPickle.load(fH)  # dict (key: contig<string>, value: expectations<dict<int, list>)
+        expectations = cPickle.load(fH)  # dict (key: contig string, value: expectations dict<int, list>)
         for reference in expectations:   # adding a loop here, but there will almost always be just 1 reference
             if reference not in expectations_at_each_position:
                 expectations_at_each_position[reference] = {}
-            for position in expectations[reference]:  # position is a dict<int, list>
-                if position not in expectations_at_each_position[reference]:
-                    expectations_at_each_position[reference][position] = [0.0, 0.0, 0.0, 0.0]
-                expectations_at_each_position[reference][position] = \
-                    [x + y for x, y, in zip(expectations_at_each_position[reference][position], expectations[reference][position])]
+            for position in expectations[reference]:  # position is int, expectations[reference] is dict<int, list>
+                if position >= alignment_shard.start and position < alignment_shard.end:
+                    if position not in expectations_at_each_position[reference]:
+                        expectations_at_each_position[reference][position] = [0.0, 0.0, 0.0, 0.0]
+                    expectations_at_each_position[reference][position] = \
+                        [x + y
+                            for x, y, in
+                            zip(expectations_at_each_position[reference][position], expectations[reference][position])]
         job.fileStore.deleteGlobalFile(posteriors_file)
 
     job.fileStore.logToMaster("[marginalizePosteriorProbsJobFunction]... done")
 
-    return expectations_at_each_position
+    variant_calls = job.addChildJobFn(callVariantsOnBatch, config, expectations_at_each_position).rv()
+    write_vcf_job = job.addFollowOnJobFn(vcfWriteJobFunction2, config, variant_calls)
+    batch_vcf     = write_vcf_job.rv()
+    return batch_vcf
 
 
 def combinePosteriorProbsJobFunction(job, expectations):
@@ -174,7 +191,7 @@ def callVariantsWithAlignedPairsJobFunction1(job, config, expectation_batches, o
         for reference in batch:
             if reference not in posterior_probs_map:
                 posterior_probs_map[reference] = {}
-            for position in batch[reference]:
+            for position in batch[reference]:  # we are now iterating over the positions with posterior probs
                 if position not in posterior_probs_map[reference]:
                     posterior_probs_map[reference][position] = [0.0, 0.0, 0.0, 0.0]
                 posterior_probs_map[reference][position] = \
@@ -196,6 +213,7 @@ def callVariantsWithAlignedPairsJobFunction2(job, config, expectations_at_each_p
 
     variant_calls = []
     batch_number  = 0
+    # XXX TODO need an outter loop here 
     # parallel map of calling variants 
     for chunk in chunk_expectations():
         variant_calls.append(job.addChildJobFn(callVariantsOnBatch, config, chunk).rv())

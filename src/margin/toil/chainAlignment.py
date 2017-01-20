@@ -181,7 +181,7 @@ def chainSamFile(parent_job, samFile, outputSamFile, readFastqFile, referenceFas
         alignmentsHash[aR.query_name][aR.reference_id].append(aR)
 
     # Now write out the sam file
-    outputSam = pysam.Samfile(outputSamFile, "wh", template=sam)
+    outputSam = pysam.Samfile(outputSamFile, "wb", template=sam)
 
     # Chain together the reads
     chainedAlignedSegments = []

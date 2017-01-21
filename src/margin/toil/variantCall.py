@@ -1,21 +1,37 @@
 import datetime
 import pandas as pd
 
+from itertools import chain
+
 from margin.utils import getFastaDictionary
 from localFileManager import LocalFile, deliverOutput
 
+VARIANT_CALL_COLS = ["contig", "position", "alt", "posterior_prob"]
+
 
 class VariantCalls(object):
-    def __init__(self):
-        self.data = pd.DataFrame(columns=["contig", "position", "alt", "posterior_prob"])
+    def __init__(self, list_of_calls):
+        self.data = pd.DataFrame(list_of_calls)
 
     def Add(self, contig, position, alt_base, posterior_prob):
         self.data.loc[len(self.data)] = (contig, position, alt_base, posterior_prob)
 
+    def Put(self, i, contig, position, alt_base, posterior_prob):
+        self.data.loc[i] = (contig, position, alt_base, posterior_prob)
 
-def concatVariantCalls(list_of_variant_calls):
-    l = [x.data for x in list_of_variant_calls]
-    return pd.concat(l).sort_values(["contig", "position"])
+    def Clean(self):
+        self.data = self.data.dropna()
+
+
+class VariantCall(object):
+    def __init__(self, contig, position, alt, posterior_prob):
+        self.data        = pd.DataFrame(columns=VARIANT_CALL_COLS, index=[0])
+        self.data.loc[0] = (contig, position, alt, posterior_prob)
+
+
+def concatVariantCalls(parent_job, list_of_variant_calls):
+    calls = [pd.read_pickle(parent_job.fileStore.readGlobalFile(fid)) for fid in list_of_variant_calls]
+    return pd.concat(calls).sort_values(["contig", "position"])
 
 
 def makeVcfFromVariantCalls(job, config, all_variant_calls, output_label):
@@ -42,7 +58,7 @@ def makeVcfFromVariantCalls(job, config, all_variant_calls, output_label):
     with open(result_file.fullpathGetter(), "w") as fH:
         print_header(fH)
         contig_hash = getFastaDictionary(job.fileStore.readGlobalFile(config["reference_FileStoreID"]))
-        results     = concatVariantCalls(all_variant_calls)
+        results     = concatVariantCalls(job, all_variant_calls)
         for contig, contig_df in results.groupby(["contig"]):
             for pos, pos_df in contig_df.groupby(["position"]):
                 ref_base = contig_hash[contig][int(pos)]

@@ -1,6 +1,8 @@
 import os
 import cPickle
 
+import pandas as pd
+
 from itertools import islice
 
 from toil_lib import require
@@ -54,26 +56,36 @@ def calculateAlignedPairsJobFunction(job, global_config, job_config, hmm, batch_
 
 
 def callVariantsOnBatch(job, config, expectations_batch):
-    BASES         = "ACGT"
-    variant_calls = VariantCalls()
-    contig_seqs   = getFastaDictionary(job.fileStore.readGlobalFile(config["reference_FileStoreID"]))
-    error_model   = loadHmmSubstitutionMatrix(job.fileStore.readGlobalFile(config["error_model_FileStoreID"]))
-    evo_sub_mat   = getNullSubstitutionMatrix()
+    job.fileStore.logToMaster("[callVariantsOnBatch]New call variants code!")
+    BASES       = "ACGT"
+    calls       = []
+    contig_seqs = getFastaDictionary(job.fileStore.readGlobalFile(config["reference_FileStoreID"]))
+    error_model = loadHmmSubstitutionMatrix(job.fileStore.readGlobalFile(config["error_model_FileStoreID"]))
+    evo_sub_mat = getNullSubstitutionMatrix()
 
     for contig in expectations_batch:
         contig_expectations = expectations_batch[contig]
         for position in expectations_batch[contig]:
-            ref_base   = contig_seqs[contig][position]  # the base at this position in the reference
-            pos_probs  = contig_expectations[position]  # a list [P(A), P(C), P(G), P(T)]
-            total_prob = sum(pos_probs)
+            ref_base     = contig_seqs[contig][position]  # the base at this position in the reference
+            pos_probs    = contig_expectations[position]  # a list [P(A), P(C), P(G), P(T)]
+            total_prob   = sum(pos_probs)
             require(total_prob > 0, "[callVariantsWithAlignedPairsJobFunction]Total prob == 0")
             posterior_probs = calcBasePosteriorProbs(dict(zip(BASES, map(lambda x : float(x) / total_prob, pos_probs))),
                                                      ref_base, evo_sub_mat, error_model)
             for b in BASES:
                 if b != ref_base and posterior_probs[b] >= config["variant_threshold"]:
-                    variant_calls.Add(contig, position, b, posterior_probs[b])
+                    #variant_calls.append(VariantCall(contig, position, b, posterior_probs[b]))
+                    calls.append({"contig": contig,
+                                  "position": position,
+                                  "alt": b,
+                                  "posterior_prob": posterior_probs[b]})
+                    #contig_calls.Put(i, contig, position, b, posterior_probs[b])
 
-    return variant_calls
+    variant_calls = pd.DataFrame(calls)
+    calls_file    = job.fileStore.getLocalTempFile()
+    variant_calls.to_pickle(calls_file)
+    require(os.path.exists(calls_file), "[callVariantsOnBatch]Didn't pickle calls")
+    return job.fileStore.writeGlobalFile(calls_file)
 
 
 def vcfWriteJobFunction(job, reference_fasta, contig_seqs, variant_calls):

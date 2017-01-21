@@ -191,7 +191,7 @@ def marginalizePosteriorProbsJobFunction(job, config, alignment_shard, cPecan_al
             posterior_probs = calcBasePosteriorProbs(dict(zip(BASES, map(lambda x : float(x) / total_prob, pos_exp))),
                                                      ref_base, evo_sub_mat, error_model)
             for b in BASES:
-                if b != ref_base and posterior_probs[b] >= config["variant_threshold"]:
+                if b != ref_base.upper() and posterior_probs[b] >= config["variant_threshold"]:
                     _handle.write("%s\t%s\t%s\t%s\t%s\n" % (contig, position, ref_base, b, posterior_probs[b]))
     _handle.close()
 

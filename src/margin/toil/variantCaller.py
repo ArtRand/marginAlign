@@ -182,9 +182,6 @@ def marginalizePosteriorProbsJobFunction(job, config, alignment_shard, cPecan_al
     error_model = loadHmmSubstitutionMatrix(job.fileStore.readGlobalFile(config["error_model_FileStoreID"]))
     evo_sub_mat = getNullSubstitutionMatrix()
 
-    # write the header to the .tsv we're making to store the variant calls
-    #_handle.write("contig\tposition\tref\talt\tposterior_prob\n")
-
     for contig in positional_expectations:
         for position in positional_expectations[contig]:
             ref_base   = contig_seqs[contig][position]
@@ -201,11 +198,6 @@ def marginalizePosteriorProbsJobFunction(job, config, alignment_shard, cPecan_al
     job.fileStore.logToMaster("[marginalizePosteriorProbsJobFunction]...done")
 
     return job.fileStore.writeGlobalFile(calls_file)
-
-    #variant_calls = job.addChildJobFn(callVariantsOnBatch, config, expectations_at_each_position).rv()
-    #write_vcf_job = job.addFollowOnJobFn(vcfWriteJobFunction2, config, variant_calls)
-    #batch_vcf     = write_vcf_job.rv()
-    #return variant_calls  # a VariantCalls object
 
 
 def combinePosteriorProbsJobFunction(job, expectations):

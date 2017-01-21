@@ -138,35 +138,74 @@ def marginalizePosteriorProbsJobFunction(job, config, alignment_shard, cPecan_al
     """reads in the posteriors and marginalizes (reduces) over the columns of the alignment returns a
     python dict with the expectations at each position
     """
-    posterior_fids = [x[0] for x in cPecan_alignedPairs_fids]
-    posterior_fids = [x for x in posterior_fids if x is not None]
+    posterior_fids = [x[0] for x in cPecan_alignedPairs_fids]      # x[0] is the FileStoreID, x[1] is the batch
+    posterior_fids = [x for x in posterior_fids if x is not None]  # filter out the failed results
     job.fileStore.logToMaster("[marginalizePosteriorProbsJobFunction]Collating posteriors have {} files ..."
                               "".format(len(posterior_fids)))
 
-    expectations_at_each_position = {}  # stores posterior probs
+    # this loop marginalizes the probabilities over the reads aligned to each position in the region we're 
+    # working on
+    # for the record: 
+    # expectations == un-normalized posterior probabilities,
+    # posteriors == are normalized expectations
+    positional_expectations = {}  # stores posterior probs at each position
     for aP_fid in posterior_fids:
-        posteriors_file = job.fileStore.readGlobalFile(aP_fid)
-        fH = open(posteriors_file, "r")
+        expectations_file = job.fileStore.readGlobalFile(aP_fid)
+        fH = open(expectations_file, "r")
         expectations = cPickle.load(fH)  # dict (key: contig string, value: expectations dict<int, list>)
         for reference in expectations:   # adding a loop here, but there will almost always be just 1 reference
-            if reference not in expectations_at_each_position:
-                expectations_at_each_position[reference] = {}
-            for position in expectations[reference]:  # position is int, expectations[reference] is dict<int, list>
+            if reference not in positional_expectations:
+                positional_expectations[reference] = {}
+            # position is int, posterior_probs[reference] is dict<int, list>
+            for position in expectations[reference]:
+                # filter out posteriors that aren't in this region
                 if position >= alignment_shard.start and position < alignment_shard.end:
-                    if position not in expectations_at_each_position[reference]:
-                        expectations_at_each_position[reference][position] = [0.0, 0.0, 0.0, 0.0]
-                    expectations_at_each_position[reference][position] = \
+                    if position not in positional_expectations[reference]:
+                        positional_expectations[reference][position] = [0.0, 0.0, 0.0, 0.0]
+                    # this ugly list comp just adds the two lists-of-probs together
+                    positional_expectations[reference][position] = \
                         [x + y
                             for x, y, in
-                            zip(expectations_at_each_position[reference][position], expectations[reference][position])]
-        job.fileStore.deleteGlobalFile(posteriors_file)
+                            zip(positional_expectations[reference][position],
+                                expectations[reference][position])]
+        fH.close()  # don't forget!
+        job.fileStore.deleteLocalFile(aP_fid)
 
     job.fileStore.logToMaster("[marginalizePosteriorProbsJobFunction]... done")
 
-    variant_calls = job.addChildJobFn(callVariantsOnBatch, config, expectations_at_each_position).rv()
+    # now go on to call the variants
+    job.fileStore.logToMaster("[marginalizePosteriorProbsJobFunction]Calling Variants...")
+    BASES       = "ACGT"
+    calls_file  = job.fileStore.getLocalTempFile()
+    _handle     = open(calls_file, "w")
+    contig_seqs = getFastaDictionary(job.fileStore.readGlobalFile(config["reference_FileStoreID"]))
+    error_model = loadHmmSubstitutionMatrix(job.fileStore.readGlobalFile(config["error_model_FileStoreID"]))
+    evo_sub_mat = getNullSubstitutionMatrix()
+
+    # write the header to the .tsv we're making to store the variant calls
+    #_handle.write("contig\tposition\tref\talt\tposterior_prob\n")
+
+    for contig in positional_expectations:
+        for position in positional_expectations[contig]:
+            ref_base   = contig_seqs[contig][position]
+            pos_exp    = positional_expectations[contig][position]  # a list [P(A), P(C), P(G), P(T)]
+            total_prob = sum(pos_exp)
+            require(total_prob > 0, "[callVariantsWithAlignedPairsJobFunction]Total prob == 0")
+            posterior_probs = calcBasePosteriorProbs(dict(zip(BASES, map(lambda x : float(x) / total_prob, pos_exp))),
+                                                     ref_base, evo_sub_mat, error_model)
+            for b in BASES:
+                if b != ref_base and posterior_probs[b] >= config["variant_threshold"]:
+                    _handle.write("%s\t%s\t%s\t%s\t%s\n" % (contig, position, ref_base, b, posterior_probs[b]))
+    _handle.close()
+
+    job.fileStore.logToMaster("[marginalizePosteriorProbsJobFunction]...done")
+
+    return job.fileStore.writeGlobalFile(calls_file)
+
+    #variant_calls = job.addChildJobFn(callVariantsOnBatch, config, expectations_at_each_position).rv()
     #write_vcf_job = job.addFollowOnJobFn(vcfWriteJobFunction2, config, variant_calls)
     #batch_vcf     = write_vcf_job.rv()
-    return variant_calls  # a VariantCalls object
+    #return variant_calls  # a VariantCalls object
 
 
 def combinePosteriorProbsJobFunction(job, expectations):

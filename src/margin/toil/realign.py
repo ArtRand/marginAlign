@@ -132,9 +132,8 @@ def rebuildSamJobFunction(job, config, alignment_shard, cPecan_cigar_fileIds):
         return
     # sort the cPecan results by batch, then discard the batch number. this is so they 'line up' with the sam
     sorted_cPecan_fids = sortResultsByBatch(cPecan_cigar_fileIds)
-
-    temp_sam_filepath = job.fileStore.getLocalTempFileName()
-    output_sam_handle = pysam.Samfile(temp_sam_filepath, 'wb', template=sam)
+    temp_sam_filepath  = job.fileStore.getLocalTempFileName()
+    output_sam_handle  = pysam.Samfile(temp_sam_filepath, 'wb', template=sam)
 
     for aR, pA in zip(samIterator(sam), cigar_iterator()):
         ops = []
@@ -256,6 +255,8 @@ def shardSamJobFunction(job, config, alignment_shard, hmm, batch_job_function, f
     # memory requirement <= alignment 
     disk         = (10 * alignment_fid.size)
     memory       = (6 * alignment_fid.size)
-    reduce_job   = job.addFollowOnJobFn(followOn_job_function, config, alignment_shard, cPecan_results, disk=disk, memory=memory)
-    batch_result = reduce_job.rv()
-    return batch_result
+    #reduce_job   = job.addFollowOnJobFn(followOn_job_function, config, alignment_shard, cPecan_results, disk=disk, memory=memory)
+    #batch_result = reduce_job.rv()
+    #return batch_result
+    return job.addFollowOnJobFn(followOn_job_function, config, alignment_shard, cPecan_results, disk=disk,
+                                memory=memory).rv()

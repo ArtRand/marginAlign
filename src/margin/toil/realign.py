@@ -106,13 +106,6 @@ def cPecanRealignJobFunction(job, global_config, job_config, hmm, batch_number,
 
 
 def rebuildSamJobFunction(job, config, alignment_shard, cPecan_cigar_fileIds):
-    alignment_fid = alignment_shard.FileStoreID
-    if config["debug"]:
-        job.fileStore.logToMaster("[rebuildSamJobFunction]Rebuild chained SAM {chained} with alignments "
-                                  "from {cPecan_fids}"
-                                  "".format(chained=alignment_fid,
-                                            cPecan_fids=cPecan_cigar_fileIds.__str__()))
-
     # iterates over the files, downloads them, and iterates over the alignments 
     def cigar_iterator():
         for fid in sorted_cPecan_fids:
@@ -122,8 +115,10 @@ def rebuildSamJobFunction(job, config, alignment_shard, cPecan_cigar_fileIds):
                 yield pA
             job.fileStore.deleteLocalFile(fid)
 
+    alignment_fid = alignment_shard.FileStoreID
     # download the chained sam
     local_sam_path = job.fileStore.readGlobalFile(alignment_fid)
+
     try:
         sam = pysam.Samfile(local_sam_path, 'r')
     except:
@@ -131,9 +126,15 @@ def rebuildSamJobFunction(job, config, alignment_shard, cPecan_cigar_fileIds):
         # TODO maybe throw an exception or something? How does toil handle errors?
         return
     # sort the cPecan results by batch, then discard the batch number. this is so they 'line up' with the sam
-    sorted_cPecan_fids = sortResultsByBatch(cPecan_cigar_fileIds)
-    temp_sam_filepath  = job.fileStore.getLocalTempFileName()
-    output_sam_handle  = pysam.Samfile(temp_sam_filepath, 'wb', template=sam)
+    sorted_cPecan_fids  = sortResultsByBatch(cPecan_cigar_fileIds)
+    temp_sam_filepath   = job.fileStore.getLocalTempFileName()
+    output_sam_handle   = pysam.Samfile(temp_sam_filepath, 'wb', template=sam)
+    failed_rebuilds     = 0
+    successful_rebuilds = 0
+    uid                 = uuid.uuid4().hex[:4]
+    failed_alignments   = LocalFile(workdir=job.fileStore.getLocalTempDir(),
+                                    filename="failed_{}_realigned.bam".format(uid))
+    failed_sam_handle   = pysam.Samfile(failed_alignments.fullpathGetter(), 'wb', template=sam)
 
     for aR, pA in zip(samIterator(sam), cigar_iterator()):
         ops = []
@@ -150,21 +151,35 @@ def rebuildSamJobFunction(job, config, alignment_shard, cPecan_cigar_fileIds):
             ops.append(aR.cigar[-1])
 
         # Checks the final operation list, correct for the read
-        assert sum(map(lambda (type, length) : length if type in (0, 1, 4) else 0, ops)) == \
-            sum(map(lambda (type, length) : length if type in (0, 1, 4) else 0, aR.cigar))
-        # Correct for the reference
-        assert sum(map(lambda (type, length) : length if type in (0, 2) else 0, ops)) == \
-            aR.reference_end - aR.reference_start
+        ops_len   = sum(map(lambda (type, length) : length if type in (0, 1, 4) else 0, ops))
+        cig_len   = sum(map(lambda (type, length) : length if type in (0, 1, 4) else 0, aR.cigar))
+        match_len = sum(map(lambda (type, length) : length if type in (0, 2) else 0, ops))
+        ref_len   = aR.reference_end - aR.reference_start
 
+        if ops_len != cig_len or match_len != ref_len:
+            failed_rebuilds += 1
+            aR.cigar = tuple(ops)
+            failed_sam_handle.write(aR)
+            continue
+
+        successful_rebuilds += 1
         aR.cigar = tuple(ops)
         # Write out
         output_sam_handle.write(aR)
 
+    job.fileStore.logToMaster("[rebuildSamJobFunction]{f} alignments failed {s} worked"
+                              "".format(f=failed_rebuilds, s=successful_rebuilds))
     sam.close()
     output_sam_handle.close()
+    failed_sam_handle.close()
 
     require(os.path.exists(temp_sam_filepath),
             "[rebuildSamJobFunction]out_sam_path does not exist at {}".format(temp_sam_filepath))
+    require(os.path.exists(failed_alignments.fullpathGetter()),
+            "[rebuildSamJobFunction]failed alignments does not exist at"
+            " {}".format(failed_alignments.fullpathGetter()))
+
+    deliverOutput(job, failed_alignments, config["output_dir"])
     return job.fileStore.writeGlobalFile(temp_sam_filepath)
 
 

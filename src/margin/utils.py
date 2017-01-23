@@ -36,7 +36,7 @@ def getLastNonClippedPositionInRead(alignedSegment, readSeq):
         alignedSegment.query_alignment_end - alignedSegment.query_alignment_start -1
 
 def getExonerateCigarFormatString(alignedSegment, sam):
-    """Gets a complete exonerate like cigar-string describing the sam line,
+    """Gets a complete exonerate-like cigar string describing the sam line,
     with the cigar described with respect to the alignedSegment.query_sequence string,
     which includes softclip bases, but not hard-clipped bases.
     """
@@ -76,6 +76,9 @@ def getFastaDictionary(fastaFile):
     names = map(lambda x : x[0], namesAndSequences)
     assert len(names) == len(set(names)) #Check all the names are unique
     return dict(namesAndSequences) #Hash of names to sequences
+
+def getAlignedSegmentDictionary(sam):
+    return dict([(aR.query_name, aR) for aR in samIterator(sam)])
 
 def makeFastaSequenceNamesUnique(inputFastaFile, outputFastaFile):
     """Makes a fasta file with unique names

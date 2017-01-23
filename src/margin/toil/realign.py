@@ -10,7 +10,11 @@ from toil_lib.programs import docker_call
 from alignment import splitLargeAlignment
 from localFileManager import LocalFile, deliverOutput
 from margin.toil.hmm import downloadHmm
-from margin.utils import samIterator, getExonerateCigarFormatString, getFastaDictionary
+from margin.utils import \
+    samIterator,\
+    getExonerateCigarFormatString,\
+    getFastaDictionary,\
+    getAlignedSegmentDictionary
 from sonLib.bioio import cigarRead
 
 
@@ -126,6 +130,7 @@ def rebuildSamJobFunction(job, config, alignment_shard, cPecan_cigar_fileIds):
         # TODO maybe throw an exception or something? How does toil handle errors?
         return
     # sort the cPecan results by batch, then discard the batch number. this is so they 'line up' with the sam
+    alignment_hash      = getAlignedSegmentDictionary(sam)
     sorted_cPecan_fids  = sortResultsByBatch(cPecan_cigar_fileIds)
     temp_sam_filepath   = job.fileStore.getLocalTempFileName()
     output_sam_handle   = pysam.Samfile(temp_sam_filepath, 'wb', template=sam)
@@ -136,8 +141,9 @@ def rebuildSamJobFunction(job, config, alignment_shard, cPecan_cigar_fileIds):
                                     filename="failed_{}_realigned.bam".format(uid))
     failed_sam_handle   = pysam.Samfile(failed_alignments.fullpathGetter(), 'wb', template=sam)
 
-    for aR, pA in zip(samIterator(sam), cigar_iterator()):
+    for pA in cigar_iterator():
         ops = []
+        aR  = alignment_hash[pA.contig2]
         if len(aR.cigar) > 0 and aR.cigar[0][0] == 5:
             # Add any hard clipped prefix
             ops.append(aR.cigar[0])
@@ -178,8 +184,8 @@ def rebuildSamJobFunction(job, config, alignment_shard, cPecan_cigar_fileIds):
     require(os.path.exists(failed_alignments.fullpathGetter()),
             "[rebuildSamJobFunction]failed alignments does not exist at"
             " {}".format(failed_alignments.fullpathGetter()))
-
-    deliverOutput(job, failed_alignments, config["output_dir"])
+    if failed_rebuilds > 0:
+        deliverOutput(job, failed_alignments, config["output_dir"])
     return job.fileStore.writeGlobalFile(temp_sam_filepath)
 
 

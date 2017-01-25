@@ -45,6 +45,10 @@ def splitLargeAlignment(parent_job, config, input_sam_fid):
         temp_sam  = parent_job.fileStore.getLocalTempFileName()
         small_sam = pysam.Samfile(temp_sam, 'wh', template=sam)
         for aln in batch:
+            # make a UID for each alignment so we can look them up uniquely later
+            uid              = uuid.uuid4().hex
+            uid_to_read[uid] = aln.query_name
+            aln.query_name   = uid
             small_sam.write(aln)
         small_sam.close()
         # write to JobStore
@@ -56,7 +60,9 @@ def splitLargeAlignment(parent_job, config, input_sam_fid):
     sam            = pysam.Samfile(large_sam, 'r')  # the big alignment
     small_sam_fids = []                             # list of FileStoreIDs of smaller alignments
     batch_of_alns  = []                             # batch of alignedSegments
+    uid_to_read    = {}                             # keep a map of uids for each alignment to reads
     total_alns     = 0                              # total alignments in the orig. to keep track
+
     for alignment in sam:
         if len(batch_of_alns) < config["split_alignments_to_this_many"]:  # add it to the batch
             batch_of_alns.append(alignment)
@@ -76,7 +82,116 @@ def splitLargeAlignment(parent_job, config, input_sam_fid):
     parent_job.fileStore.logToMaster("[splitLargeAlignment]Input alignment has {N} alignments in it"
                                      "split it into {n} smaller files".format(N=total_alns,
                                                                               n=len(small_sam_fids)))
-    return small_sam_fids
+    return small_sam_fids, uid_to_read
+
+
+def makeRangedAlignmentJobFunction(job, contig_alignment_fid):
+    workdir           = job.fileStore.getLocalTempDir()
+    ranged_alignments = []
+    
+    aln  = parent_job.fileStore.getLocalTempFile()
+    fH   = open(aln, "w")
+    args = ["view",
+            "-h",
+            "/data/{}".format(alignment_file.filenameGetter()),
+            "{chr}:{start}-{end}".format(chr=contig_label, start=start, end=end - 1)]  # -1 bc. samtools
+    docker_call(job=parent_job, tool=samtools_image, parameters=args, work_dir=(workdir + "/"), outfile=fH)
+    fH.close()
+    if check_for_empty(aln):
+        continue
+    fid = parent_job.fileStore.writeGlobalFile(aln)
+    ranged_alignments.append(AlignmentShard(start=start, end=end, FileStoreID=fid))
+
+
+def check_for_empty(alignment_file_path):
+    "Returns True if empty"
+    sam = pysam.Samfile(alignment_file_path, "r")
+    for ar in sam:
+        return False
+    return True
+
+
+def make_bai(alignment_file, workdir, samtools_image="quay.io/ucsc_cgl/samtools"):
+    require(os.path.exists(alignment_file.fullpathGetter()), "[make_bai]BAM file missing")
+    make_bai_args = ["index", "/data/{}".format(alignment_file.filenameGetter())]
+    docker_call(job=job, tool=samtools_image, parameters=make_bai_args, work_dir=(workdir + "/"))
+
+
+def shardAlignmentByRegionJobFunction(job, config, input_alignment_fid,
+                                      samtools_image="quay.io/ucsc_cgl/samtools"):
+    def get_ranges(reference_length):
+        s      = 0
+        e      = config["split_chromosome_this_length"]
+        step   = config["split_chromosome_this_length"]
+        ranges = []
+        while e < reference_length:
+            ranges.append((s, e))
+            s += step
+            e += step
+        ranges.append((s, reference_length))
+        return ranges
+
+
+    def break_alignment_by_region(alignment_file, contig_label):
+        reference_length  = len(reference_hash[contig_label])
+        ranged_alignments = []
+        chromsome_ranges  = get_ranges(reference_length)
+        work_chunk        = 10  # spawn child jobs to work on this many ranges at a time
+        make_bai(alignment_file)
+        for i in xrange(0, len(chromsome_ranges), work_chunk):
+        #for start, end in get_ranges(reference_length):
+            require(os.path.exists(alignment_file.fullpathGetter()), "[break_alignment_by_region]DIdn't find SAM")
+            aln  = parent_job.fileStore.getLocalTempFile()
+            fH   = open(aln, "w")
+            args = ["view",
+                    "-h",
+                    "/data/{}".format(alignment_file.filenameGetter()),
+                    "{chr}:{start}-{end}".format(chr=contig_label, start=start, end=end - 1)]  # -1 bc. samtools
+            docker_call(job=parent_job, tool=samtools_image, parameters=args, work_dir=(workdir + "/"), outfile=fH)
+            fH.close()
+            if check_for_empty(aln):
+                continue
+            fid = parent_job.fileStore.writeGlobalFile(aln)
+            ranged_alignments.append(AlignmentShard(start=start, end=end, FileStoreID=fid))
+
+        return ranged_alignments
+
+    # an unfortunate reality is that we need to check every contig in the input reference for an alignment
+    # even though in practice we'll have an alignment sorted to contain only one contig
+    uid            = uuid.uuid4().hex
+    workdir        = job.fileStore.getLocalTempDir()
+    reference_hash = getFastaDictionary(job.fileStore.readGlobalFile(config["reference_FileStoreID"]))
+    full_alignment = LocalFile(workdir=workdir, filename="full{}.bam".format(uid))
+    accumulator    = []  # will contain [(start, end, fid)...] for each alignment shard
+    job.fileStore.readGlobalFile(input_alignment_fid, userPath=full_alignment.fullpathGetter())
+    make_bai(full_alignment)  # make the BAI for the fill alignment
+
+    # loop over the contigs in the reference hash
+    for reference in reference_hash:
+        contig_alignment = LocalFile(workdir=workdir,
+                                     filename="{contig}{uid}.bam".format(contig=reference, uid=uid))
+        samtools_args    = ["view",
+                            "-hb",
+                            "/data/{}".format(full_alignment.filenameGetter()),
+                            "{}".format(reference)]
+        _handle          = open(contig_alignment.fullpathGetter(), "w")
+        docker_call(job=job,
+                    tool=samtools_image,
+                    parameters=samtools_args,
+                    work_dir=(workdir + "/"),
+                    outfile=_handle)
+        _handle.close()
+        if check_for_empty(contig_alignment.fullpathGetter()):
+            continue
+        
+        contig_aln_fid = job.fileStore.writeGlobalFile(contig_alignment.fullpathGetter())
+        contig_ranges  = get_ranges(len(reference_hash[reference]))
+        work_chunk     = 10  # work on this many ranges at a time
+        for i in xrange(0, len(contig_ranges), work_chunk):
+            accumulator.extend(job.addChildJobFn(makeRangedAlignmentJobFunction,
+                                                 contig_aln_fid, contig_ranges[i:i + work_chunk]).rv())
+        
+    return accumulator
 
 
 def shardAlignmentByRegion(parent_job, config, input_alignment_fid,

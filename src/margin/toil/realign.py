@@ -39,9 +39,9 @@ def sortResultsByBatch(cPecan_result_fids):
 
 
 def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
-    smaller_alns        = splitLargeAlignment(job, config, input_samfile_fid)
-    realigned_fids      = []
-    hidden_markov_model = downloadHmm(job, config)
+    smaller_alns, uid_to_read = splitLargeAlignment(job, config, input_samfile_fid)
+    realigned_fids            = []
+    hidden_markov_model       = downloadHmm(job, config)
 
     for aln in smaller_alns:
         disk   = input_samfile_fid.size + config["reference_FileStoreID"].size
@@ -52,10 +52,10 @@ def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
         realigned_fids.append(realigned_sam)
 
     job.addFollowOnJobFn(combineRealignedSamfilesJobFunction, config, input_samfile_fid, realigned_fids,
-                         output_label)
+                         uid_to_read, output_label)
 
 
-def combineRealignedSamfilesJobFunction(job, config, input_samfile_fid, realigned_fids, output_label):
+def combineRealignedSamfilesJobFunction(job, config, input_samfile_fid, realigned_fids, uid_to_read, output_label):
     original_sam      = job.fileStore.readGlobalFile(input_samfile_fid)
     sam               = pysam.Samfile(original_sam, "r")
     filename          = "{sample}_{out_label}.bam".format(sample=config["sample_label"], out_label=output_label)
@@ -66,8 +66,10 @@ def combineRealignedSamfilesJobFunction(job, config, input_samfile_fid, realigne
     for fid in realigned_fids:
         local_copy = job.fileStore.readGlobalFile(fid)
         samfile    = pysam.Samfile(local_copy, "rb")
-        for line in samfile:
-            output_sam_handle.write(line)
+        for alignment in samfile:
+            read_label = uid_to_read[alignment.query_name]
+            alignment.query_name = read_label
+            output_sam_handle.write(alignment)
         samfile.close()
         job.fileStore.deleteGlobalFile(fid)
 
@@ -100,7 +102,10 @@ def cPecanRealignJobFunction(job, global_config, job_config, hmm, batch_number,
     output_arg        = "--output_alignment_file={}".format(DOCKER_DIR + local_output.filenameGetter())
     cPecan_parameters = [input_arg, hmm_arg, gap_gamma_arg, match_gamma_arg, output_arg]
     try:
-        docker_call(job=job, tool=cPecan_image, parameters=cPecan_parameters, work_dir=(workdir + "/"))
+        docker_call(job=job,
+                    tool=cPecan_image,
+                    parameters=cPecan_parameters,
+                    work_dir=(workdir + "/"))
         if not os.path.exists(local_output.fullpathGetter()):
             return None
         result_fid = job.fileStore.writeGlobalFile(local_output.fullpathGetter())
@@ -138,7 +143,9 @@ def rebuildSamJobFunction(job, config, alignment_shard, cPecan_cigar_fileIds):
     successful_rebuilds = 0
     uid                 = uuid.uuid4().hex[:4]
     failed_alignments   = LocalFile(workdir=job.fileStore.getLocalTempDir(),
-                                    filename="failed_{}_realigned.bam".format(uid))
+                                    filename="{lab}_failed_{uid}_realigned.bam"
+                                             "".format(lab=config["sample_label"],
+                                                       uid=uid))
     failed_sam_handle   = pysam.Samfile(failed_alignments.fullpathGetter(), 'wb', template=sam)
 
     for pA in cigar_iterator():

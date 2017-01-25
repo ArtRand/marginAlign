@@ -127,6 +127,13 @@ def urlDownload(parent_job, source_url, destination_file, retry_count=3, s3am_im
         return
 
 
+def importToJobstore(parent_job, source_url, retry_count=3):
+    f = LocalFile(workdir=parent_job.fileStore.getLocalTempDir(), filename="{}.tmp".format(uuid.uuid4().hex))
+    urlDownload(parent_job, source_url, f, retry_count)
+    require(os.path.exists(f.fullpathGetter()), "[importToJobstore]Error downloading URL {}".format(source_url))
+    return parent_job.fileStore.writeGlobalFile(f.fullpathGetter())
+
+
 def urlDownlodJobFunction(job, source_url):
     uid              = uuid.uuid4().hex
     workdir          = job.fileStore.getLocalTempDir()

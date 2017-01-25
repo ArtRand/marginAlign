@@ -5,7 +5,7 @@ from collections import namedtuple
 from toil_lib import require
 from toil_lib.programs import docker_call
 from margin.utils import getFastaDictionary
-from margin.toil.localFileManager import LocalFile
+from margin.toil.localFileManager import LocalFile, urlDownload
 
 
 class AlignmentFormat:
@@ -174,7 +174,21 @@ def shardAlignmentByRegionJobFunction(job, reference_fid, input_alignment_fid, c
 
     return accumulator
 
-"""
+
+def downloadSplitAlignmentByRegionJobFunction(job, alignment_url, reference_fid, chromosome_split_len):
+    full_alignment = LocalFile(workdir=job.fileStore.getLocalTempDir(),
+                               filename="{}.bam".format(uuid.uuid4().hex))
+    urlDownload(parent_job=job, source_url=alignment_url, destination=full_alignment)
+    require(os.path.exists(full_alignment.fullpathGetter()),
+            "[downloadSplitAlignmentByRegionJobFunction]Didn't download alignment {}".format(alignment_url))
+    alignment_fid = job.fileStore.writeGlobalFile(full_alignment.fullpathGetter())
+    sharded_alignments = job.addChildJobFn(shardAlignmentByRegionJobFunction,
+                                           reference_fid,
+                                           alignment_fid,
+                                           chromosome_split_len).rv()
+    return alignment_fid, sharded_alignments
+
+
 def shardAlignmentByRegion(parent_job, config, input_alignment_fid,
                            samtools_image="quay.io/ucsc_cgl/samtools"):
     def get_ranges(reference_length):
@@ -251,6 +265,5 @@ def shardAlignmentByRegion(parent_job, config, input_alignment_fid,
         if check_for_empty(contig_alignment.fullpathGetter()):
             continue
         accumulator.extend(break_alignment_by_region(contig_alignment, reference))
- 
+
     return accumulator
-"""

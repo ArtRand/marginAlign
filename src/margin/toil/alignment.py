@@ -1,6 +1,8 @@
 import os
 import uuid
 import pysam
+import numpy as np
+import pandas as pd
 from collections import namedtuple
 from toil_lib import require
 from toil_lib.programs import docker_call
@@ -85,20 +87,23 @@ def splitLargeAlignment(parent_job, config, input_sam_fid):
     return small_sam_fids, uid_to_read
 
 
-def makeRangedAlignmentJobFunction(job, contig_label, contig_alignment_fid, ranges,
+def makeRangedAlignmentJobFunction(job, contig_label, full_alignment_fid, ranges,
                                    samtools_image="quay.io/ucsc_cgl/samtools"):
+    uid               = uuid.uuid4().hex
     workdir           = job.fileStore.getLocalTempDir()
     ranged_alignments = []
-    contig_alignment  = LocalFile(workdir=workdir, filename="{}.bam".format(contig_label))
-    job.fileStore.readGlobalFile(contig_alignment_fid, userPath=contig_alignment.fullpathGetter())
-    make_bai(job, contig_alignment, workdir)
+    alignment         = LocalFile(workdir=workdir, filename="{r}{u}.bam".format(r=contig_label, u=uid))
+
+    job.fileStore.readGlobalFile(full_alignment_fid, userPath=alignment.fullpathGetter())
+    make_bai(job, alignment, workdir)
+
     for start, end in ranges:
         uid  = uuid.uuid4().hex
         aln  = LocalFile(workdir=workdir, filename="tmp{}.sam".format(uid))
         fH   = open(aln.fullpathGetter(), "w")
         args = ["view",
                 "-h",
-                "/data/{}".format(contig_alignment.filenameGetter()),
+                "/data/{}".format(alignment.filenameGetter()),
                 "{chr}:{start}-{end}".format(chr=contig_label, start=start, end=end - 1)]  # -1 bc. samtools
         docker_call(job=job, tool=samtools_image, parameters=args, work_dir=workdir, outfile=fH)
         fH.close()
@@ -106,6 +111,7 @@ def makeRangedAlignmentJobFunction(job, contig_label, contig_alignment_fid, rang
             continue
         fid = job.fileStore.writeGlobalFile(aln.fullpathGetter())
         ranged_alignments.append(AlignmentShard(start=start, end=end, FileStoreID=fid))
+
     return ranged_alignments
 
 
@@ -139,37 +145,38 @@ def get_ranges(reference_length, split_len):
 
 def shardAlignmentByRegionJobFunction(job, reference_fid, input_alignment_fid, chromosome_split_len,
                                       samtools_image="quay.io/ucsc_cgl/samtools"):
-    # an unfortunate reality is that we need to check every contig in the input reference for an alignment
-    # even though in practice we'll have an alignment sorted to contain only one contig
+    def contig_generator():
+        _args  = ["idxstats", "/data/{}".format(full_alignment.filenameGetter())]
+        _stats = LocalFile(workdir=workdir, filename="{}.tmp".format(uuid.uuid4().hex))
+        _fH    = open(_stats.fullpathGetter(), "w")
+        docker_call(job=job,
+                    tool=samtools_image,
+                    parameters=_args,
+                    work_dir=(workdir + "/"),
+                    outfile=_fH)
+        _fH.close()
+        _table = pd.read_table(_stats.fullpathGetter(),
+                               usecols=(0, 2),
+                               names=["contig", "n_reads"],
+                               dtype={"contig": np.str, "n_reads": np.int64})
+        for contig in _table.loc[_table["n_reads"] > 0]["contig"]:
+            yield contig
+
     uid            = uuid.uuid4().hex
     workdir        = job.fileStore.getLocalTempDir()
     reference_hash = getFastaDictionary(job.fileStore.readGlobalFile(reference_fid))
     full_alignment = LocalFile(workdir=workdir, filename="full{}.bam".format(uid))
-    accumulator    = []  # will contain [(start, end, fid)...] for each alignment shard
+    accumulator    = []
+
     job.fileStore.readGlobalFile(input_alignment_fid, userPath=full_alignment.fullpathGetter())
-    make_bai(job, full_alignment, workdir)  # make the BAI for the fill alignment
+    make_bai(job, full_alignment, workdir)
 
     # loop over the contigs in the reference hash
-    for reference in reference_hash:
-        contig_alignment = LocalFile(workdir=workdir,
-                                     filename="{contig}{uid}.bam".format(contig=reference, uid=uid))
-        samtools_args    = ["view",
-                            "-hb",
-                            "/data/{}".format(full_alignment.filenameGetter()),
-                            "{}".format(reference)]
-        _handle          = open(contig_alignment.fullpathGetter(), "w")
-        docker_call(job=job,
-                    tool=samtools_image,
-                    parameters=samtools_args,
-                    work_dir=(workdir + "/"),
-                    outfile=_handle)
-        _handle.close()
-        if check_for_empty(contig_alignment.fullpathGetter()):
-            continue
-        contig_aln_fid = job.fileStore.writeGlobalFile(contig_alignment.fullpathGetter())
-        contig_ranges  = get_ranges(len(reference_hash[reference]), chromosome_split_len)
+    for contig in contig_generator():
+        job.fileStore.logToMaster("[shardAlignmentByRegionJobFunction] %s contains alignments, sharding" % contig)
+        contig_ranges  = get_ranges(len(reference_hash[contig]), chromosome_split_len)
         accumulator.extend([job.addChildJobFn(makeRangedAlignmentJobFunction,
-                                              reference, contig_aln_fid, batch).rv()
+                                              contig, input_alignment_fid, batch).rv()
                             for batch in contig_ranges])
 
     return accumulator

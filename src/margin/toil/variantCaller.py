@@ -46,7 +46,7 @@ def calculateAlignedPairsJobFunction(job, global_config, job_config, hmm, batch_
         cPecan_params.append(margin_arg)
 
     try:
-        docker_call(job=job, tool=cPecan_image, parameters=cPecan_params, work_dir=(workdir + "/"))
+        docker_call(job=job, tool=cPecan_image, parameters=cPecan_params, work_dir=(workdir + "/"), defer=2)
         if not os.path.exists(local_output.fullpathGetter()):
             return None
         result_fid = job.fileStore.writeGlobalFile(local_output.fullpathGetter())

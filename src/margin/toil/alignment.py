@@ -38,7 +38,7 @@ class AlignmentStruct(object):
         return (self.aln_format == AlignmentFormat.BAM)
 
 
-def splitLargeAlignment(parent_job, config, input_sam_fid):
+def splitLargeAlignment(parent_job, split_alignments_to_this_many, input_sam_fid):
     """takes a large alignment (SAM/BAM) and makes a bunch of smaller ones from it
     """
     def makeSamfile(batch):
@@ -66,7 +66,7 @@ def splitLargeAlignment(parent_job, config, input_sam_fid):
     total_alns     = 0                              # total alignments in the orig. to keep track
 
     for alignment in sam:
-        if len(batch_of_alns) < config["split_alignments_to_this_many"]:  # add it to the batch
+        if len(batch_of_alns) < split_alignments_to_this_many:  # add it to the batch
             batch_of_alns.append(alignment)
             total_alns += 1
             continue

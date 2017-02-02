@@ -39,7 +39,9 @@ def sortResultsByBatch(cPecan_result_fids):
 
 
 def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
-    smaller_alns, uid_to_read = splitLargeAlignment(job, config, input_samfile_fid)
+    smaller_alns, uid_to_read = splitLargeAlignment(job,
+                                                    config["split_alignments_to_this_many"],
+                                                    input_samfile_fid)
     realigned_fids            = []
     hidden_markov_model       = downloadHmm(job, config)
 

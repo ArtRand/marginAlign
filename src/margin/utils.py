@@ -236,12 +236,12 @@ class AlignedPair:
 
                 pPair = aP
                 yield aP 
-                
+
 class ReadAlignmentStats:
     """Calculates stats of a given read alignment.
     Global alignment means the entire reference and read sequences (trailing indels).
     """
-    def __init__(self, readSeq, refSeq, alignedRead, globalAlignment=False):
+    def __init__(self, read_label, readSeq, refSeq, alignedRead, globalAlignment=False):
         self.matches = 0
         self.mismatches = 0
         self.ns = 0
@@ -251,8 +251,9 @@ class ReadAlignmentStats:
         self.totalReadDeletions = 0
         self.readSeq = readSeq
         self.refSeq = refSeq
+        self.read_label = read_label
         self.globalAlignment = globalAlignment
-        
+
         #Now process the read alignment
         totalReadInsertionLength, totalReadDeletionLength = 0, 0
         aP = None
@@ -319,15 +320,21 @@ class ReadAlignmentStats:
         return len(self.readSeq)
     
     @staticmethod
-    def getReadAlignmentStats(samFile, readFastqFile, referenceFastaFile, globalAlignment=True):
+    def getReadAlignmentStats(samFile, readFastqFile, referenceFastaFile, uid_to_read,
+                              globalAlignment=True):
         """Gets a list of ReadAlignmentStats objects, one for each alignment in the same file
         """
         refSequences = getFastaDictionary(referenceFastaFile) #Hash of names to sequences
         readSequences = getFastqDictionary(readFastqFile) #Hash of names to sequences
         sam = pysam.Samfile(samFile, "r")
         readsToReadCoverages = {}
-        readAlignmentStats = map(lambda aR : ReadAlignmentStats(readSequences[aR.qname], \
-            refSequences[sam.getrname(aR.rname)], aR, globalAlignment), samIterator(sam))
+        readAlignmentStats = map(lambda aR :
+                                 ReadAlignmentStats(aR.qname,
+                                                    readSequences[uid_to_read[aR.qname]],
+                                                    refSequences[sam.getrname(aR.rname)],
+                                                    aR,
+                                                    globalAlignment),
+                                 samIterator(sam))
         sam.close()
         return readAlignmentStats
     

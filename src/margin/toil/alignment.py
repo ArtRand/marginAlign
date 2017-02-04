@@ -171,7 +171,6 @@ def shardAlignmentByRegionJobFunction(job, reference_fid, input_alignment_fid, c
     job.fileStore.readGlobalFile(input_alignment_fid, userPath=full_alignment.fullpathGetter())
     make_bai(job, full_alignment, workdir)
 
-    # loop over the contigs in the reference hash
     for contig in contig_generator():
         job.fileStore.logToMaster("[shardAlignmentByRegionJobFunction] %s contains alignments, sharding" % contig)
         contig_ranges  = get_ranges(len(reference_hash[contig]), chromosome_split_len)
@@ -183,6 +182,8 @@ def shardAlignmentByRegionJobFunction(job, reference_fid, input_alignment_fid, c
 
 
 def downloadSplitAlignmentByRegionJobFunction(job, alignment_url, reference_fid, chromosome_split_len):
+    """DEPRECIATED?
+    """
     full_alignment = LocalFile(workdir=job.fileStore.getLocalTempDir(),
                                filename="{}.bam".format(uuid.uuid4().hex))
     urlDownload(parent_job=job, source_url=alignment_url, destination=full_alignment)
@@ -198,6 +199,8 @@ def downloadSplitAlignmentByRegionJobFunction(job, alignment_url, reference_fid,
 
 def shardAlignmentByRegion(parent_job, config, input_alignment_fid,
                            samtools_image="quay.io/ucsc_cgl/samtools"):
+    """DEPRECIATED
+    """
     def get_ranges(reference_length):
         s      = 0
         e      = config["split_chromosome_this_length"]

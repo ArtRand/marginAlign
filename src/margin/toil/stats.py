@@ -18,8 +18,9 @@ def collectAlignmentStatsJobFunction(job, config, full_alignment_fid, output_lab
     smaller_alns, uid_to_read = splitLargeAlignment(job,
                                                     config["stats_alignment_batch_size"],
                                                     full_alignment_fid)
+    disk = 2 * config["reference_FileStoreID"].size
 
-    stat_shards = [job.addChildJobFn(marginStatsJobFunction2,
+    stat_shards = [job.addChildJobFn(marginStatsJobFunction,
                                      alignment.FileStoreID,
                                      uid_to_read,
                                      config["reference_FileStoreID"],
@@ -31,7 +32,7 @@ def collectAlignmentStatsJobFunction(job, config, full_alignment_fid, output_lab
     return
 
 
-def marginStatsJobFunction2(job, alignment_fid, uid_to_read, reference_fid, fastq_fid, local_alignment):
+def marginStatsJobFunction(job, alignment_fid, uid_to_read, reference_fid, fastq_fid, local_alignment):
     # type (toil.job.Job, filestoreID, filestoreID, filestoreID, bool)
     def write_stats(ras):
         l = "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % (uid_to_read[ras.read_label],
@@ -46,7 +47,6 @@ def marginStatsJobFunction2(job, alignment_fid, uid_to_read, reference_fid, fast
     sam_file    = job.fileStore.readGlobalFile(alignment_fid)
     ref_file    = job.fileStore.readGlobalFile(reference_fid)
     reads_fastq = job.fileStore.readGlobalFile(fastq_fid)
-    workdir     = job.fileStore.getLocalTempDir()
     out_stats   = job.fileStore.getLocalTempFileName()
     aln_stats   = ReadAlignmentStats.getReadAlignmentStats(sam_file,
                                                            reads_fastq,
@@ -74,7 +74,7 @@ def deliverAlignmentStats(job, config, stat_shards, output_label):
                                   "mismatchesPerAlignedBase" : numpy.float64,
                                   "deletionsPerReadBase"     : numpy.float64,
                                   "insertionsPerReadBase"    : numpy.float64,
-                                  "readLength"               : numpy.int,})
+                                  "readLength"               : numpy.int})
         return df
 
     stats    = pd.concat([parse_stats(f) for f in [job.fileStore.readGlobalFile(fid) for fid in stat_shards]])
@@ -99,7 +99,7 @@ def deliverAlignmentStats(job, config, stat_shards, output_label):
     return
 
 
-def marginStatsJobFunction(job, config, alignment_fid, output_label):
+def marginStatsJobFunctionOld(job, config, alignment_fid, output_label):
     def report(values, statisticName):
         if not config["noStats"]:
             print("Average" + statisticName, numpy.average(values), file=fH)

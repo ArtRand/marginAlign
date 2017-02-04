@@ -1,5 +1,7 @@
 The marginAlign package can be used to align reads to a reference genome and call single nucleotide variations (SNVs). It is specifically tailored for Oxford Nanopore Reads.
 
+Now with signal!!
+
 The package comes with three programs: marginAlign, a read aligner, marginCaller, a program to call single nucleotide variations, and marginStats, a program to compute simple qc stats on a sam file (alignment identity, coverage, insertion and deletion rates).
 
 ### Requirements

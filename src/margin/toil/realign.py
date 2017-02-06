@@ -283,7 +283,7 @@ def shardSamJobFunction(job, config, alignment_shard, hmm, batch_job_function, f
     job.fileStore.logToMaster("[shardSamJobFunction]Made {} batches".format(batch_number + 1))
     # disk requirement <= alignment + exonerate cigars
     # memory requirement <= alignment 
-    disk         = (2 * config["reference_FileStoreID"].size)
-    memory       = (6 * alignment_fid.size)
+    disk   = (2 * config["reference_FileStoreID"].size)
+    memory = (6 * alignment_fid.size)
     return job.addFollowOnJobFn(followOn_job_function, config, alignment_shard, cPecan_results, disk=disk,
                                 memory=memory).rv()

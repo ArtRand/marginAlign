@@ -6,7 +6,7 @@ import uuid
 import subprocess
 import shutil
 import gzip
-from toil_lib import require
+from toil_lib import require, UserError
 from toil_lib.files import copy_files
 from toil_lib.programs import docker_call
 
@@ -105,16 +105,20 @@ class LocalFile(object):
         return self.workdir
 
 
-def urlDownload(parent_job, source_url, destination_file, retry_count=3, s3am_image="quay.io/ucsc_cgl/s3am"):
-    # (string, string, LocalFile) -> string
+def urlDownload(parent_job, source_url, destination_file, download_slots="16", part_size="10M",
+                retry_count=3, s3am_image="quay.io/ucsc_cgl/s3am"):
+    # (string, string, LocalFile, string, string, int, string)
     def check_destination():
         require(os.path.exists(destination_file.fullpathGetter()),
                 "[urlDownload]After download, couldn't find file here"
                 "{}".format(destination_file.fullpathGetter()))
 
     if urlparse.urlparse(source_url).scheme == "s3":  # use S3AM
-        destination_arg = DOCKER_DIR + destination_file.filenameGetter()
-        s3am_args       = ["download", "--download-exists=discard", source_url, destination_arg]
+        destination_arg    = DOCKER_DIR + destination_file.filenameGetter()
+        download_slots_arg = "--download-slots=%s" % download_slots
+        part_size_arg      = "--part-size=%s" % part_size
+        s3am_args          = ["download", "--download-exists=discard", download_slots_arg, part_size_arg,
+                              source_url, destination_arg]
         for i in xrange(retry_count):
             try:
                 parent_job.fileStore.logToMaster("[urlDownload]Using S3AM to download {source} to {dest}"
@@ -153,11 +157,18 @@ def urlDownlodJobFunction(job, source_url):
     return filestore_id
 
 
-def urlDownloadToLocalFile(parent_job, workdir, source_url, filename=None, retry_count=3, s3am_image="quay.io/ucsc_cgl/s3am"):
+def urlDownloadToLocalFile(parent_job, workdir, source_url, download_slots="16", part_size="10M",
+                           filename=None, retry_count=3, s3am_image="quay.io/ucsc_cgl/s3am"):
     """Downloads a file from a URL to `workdir` and returns a LocalFile object
     """
     f = LocalFile(workdir=workdir, filename=filename)
-    urlDownload(parent_job, source_url, f, retry_count, s3am_image)
+    try:
+        urlDownload(parent_job=parent_job, source_url=source_url, destination_file=f,
+                    download_slots=download_slots, part_size=part_size, retry_count=retry_count,
+                    s3am_image=s3am_image)
+    except (UserError, RuntimeError):
+        return None
+
     return f
 
 

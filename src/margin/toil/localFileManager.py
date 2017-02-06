@@ -5,6 +5,7 @@ import urlparse
 import uuid
 import subprocess
 import shutil
+import gzip
 from toil_lib import require
 from toil_lib.files import copy_files
 from toil_lib.programs import docker_call
@@ -25,12 +26,16 @@ class LocalFileManager(object):
     """Gets all the files in 'fileIds_to_get' from the global fileStore
     and puts them in the local working directory.
     """
-    def __init__(self, job, fileIds_to_get, userFileNames=None):
+    def __init__(self, job, fileIds_to_get, userFileNames=None, workdir=None):
         # type: (toil.job.Job, list<str>, dict<str, str>)
         # userFileNames has the FileStoreID as keys and file name  
         # you want it to have as a value {fid: "file_name"}
         self.owner_job = job
-        self.work_dir  = job.fileStore.getLocalTempDir()
+        if workdir is None:
+            self.work_dir  = job.fileStore.getLocalTempDir()
+        else:
+            self.work_dir = workdir
+
         self.file_dict = self._initialize_file_dict(fileIds_to_get, userFileNames)
 
     def localFileName(self, fileId):
@@ -82,8 +87,10 @@ class LocalFile(object):
     """A struct containing the path and handle for a file, used to easily access the a file and
     it's contents primarly useful for files that aren't in the FileStore already
     """
-    def __init__(self, workdir, filename):
+    def __init__(self, workdir, filename=None):
         # TODO make this an os.path.join
+        if filename is None:
+            filename = "%s.tmp" % uuid.uuid4().hex
         self.path     = workdir + "/" + filename
         self.filename = filename
         self.workdir  = workdir
@@ -146,11 +153,30 @@ def urlDownlodJobFunction(job, source_url):
     return filestore_id
 
 
+def urlDownloadToLocalFile(parent_job, workdir, source_url, filename=None, retry_count=3, s3am_image="quay.io/ucsc_cgl/s3am"):
+    """Downloads a file from a URL to `workdir` and returns a LocalFile object
+    """
+    f = LocalFile(workdir=workdir, filename=filename)
+    urlDownload(parent_job, source_url, f, retry_count, s3am_image)
+    return f
+
+
+def unzipLocalFile(zipped_localFile, filename=None):
+    f    = LocalFile(workdir=zipped_localFile.workdirGetter(), filename=filename)
+    in_  = gzip.open(zipped_localFile.fullpathGetter(), "rb")
+    out_ = open(f.fullpathGetter(), "wb")
+    out_.write(in_.read())
+    in_.close()
+    out_.close()
+    return f
+
+
 def deliverOutput(parent_job, deliverable_file, destination, retry_count=3,
                   s3am_image="quay.io/ucsc_cgl/s3am", overwrite=True):
     # type (toil.job.Job, LocalFile, URL)
     """Run S3AM in a container to deliver files to S3 or copy files to a local file
     """
+    require(destination is not None, "[deliverOutput]No (or invalid) destination (%s) given" % destination)
     require(os.path.exists(deliverable_file.fullpathGetter()), "[deliverOutput]Didn't find file {here}"
                                                                "".format(here=deliverable_file))
 

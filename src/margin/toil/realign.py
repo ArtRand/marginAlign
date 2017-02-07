@@ -5,17 +5,21 @@ import os
 import pysam
 import uuid
 import cPickle
+
+from bd2k.util.humanize import human2bytes
 from toil_lib import require
 from toil_lib.programs import docker_call
-from alignment import splitLargeAlignment
-from localFileManager import LocalFile, deliverOutput
+
+from sonLib.bioio import cigarRead
 from margin.toil.hmm import downloadHmm
 from margin.utils import \
     samIterator,\
     getExonerateCigarFormatString,\
     getFastaDictionary,\
     getAlignedSegmentDictionary
-from sonLib.bioio import cigarRead
+
+from alignment import splitLargeAlignment
+from localFileManager import LocalFile, deliverOutput
 
 
 DOCKER_DIR = "/data/"
@@ -49,7 +53,11 @@ def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
         disk   = input_samfile_fid.size + config["reference_FileStoreID"].size
         memory = (6 * input_samfile_fid.size)
         realigned_sam = job.addChildJobFn(shardSamJobFunction, config, aln, hidden_markov_model,
-                                          cPecanRealignJobFunction, rebuildSamJobFunction,
+                                          cPecanRealignJobFunction,
+                                          rebuildSamJobFunction,
+                                          batch_disk=disk,
+                                          followOn_disk=(2 * config["reference_FileStoreID"].size),
+                                          followOn_mem=(6 * aln.FileStoreID.size),
                                           disk=disk, memory=memory).rv()
         realigned_fids.append(realigned_sam)
 
@@ -198,7 +206,9 @@ def rebuildSamJobFunction(job, config, alignment_shard, cPecan_cigar_fileIds):
     return job.fileStore.writeGlobalFile(temp_sam_filepath)
 
 
-def shardSamJobFunction(job, config, alignment_shard, hmm, batch_job_function, followOn_job_function):
+def shardSamJobFunction(job, config, alignment_shard, hmm, batch_job_function, followOn_job_function,
+                        batch_disk=human2bytes("1G"), followOn_disk=human2bytes("3G"),
+                        batch_mem=human2bytes("2G"), followOn_mem=human2bytes("2G")):
     # get the sam file locally
     alignment_fid   = alignment_shard.FileStoreID
     local_sam_path  = job.fileStore.readGlobalFile(alignment_fid)
@@ -209,9 +219,7 @@ def shardSamJobFunction(job, config, alignment_shard, hmm, batch_job_function, f
     try:
         sam = pysam.Samfile(local_sam_path, 'r')
     except:
-        job.fileStore.logToMaster("[realignSamFile]Problem with SAM %s, exiting" % local_sam_path)
-        # TODO maybe throw an exception or something? How does toil handle errors?
-        return
+        raise RuntimeError("[shardSamJobFunction]Problem opening alignment %s" % local_sam_path)
 
     def send_alignment_batch(result_fids, batch_number):
         # type: (list<string>, int) -> int
@@ -221,7 +229,7 @@ def shardSamJobFunction(job, config, alignment_shard, hmm, batch_job_function, f
                 "[send_alignment_batch] len(exonerate_cigar_batch) != len(query_seqs)"
             assert(len(query_seqs) == len(query_labs)),\
                 "[send_alignment_batch] len(query_seqs) != len(query_labs)"
-
+            # TODO add try/except for contigs that aren't in the reference map
             cPecan_config = {
                 "exonerate_cigars" : exonerate_cigar_batch,
                 "query_sequences"  : query_seqs,
@@ -230,10 +238,8 @@ def shardSamJobFunction(job, config, alignment_shard, hmm, batch_job_function, f
                 "contig_name"      : contig_name,
             }
 
-            # disk requirement = cigars + query_seqs + contig_seq + result
-            # mem requirement = alignment
             result_id = job.addChildJobFn(batch_job_function, config, cPecan_config, hmm,
-                                          batch_number, disk=config["reference_FileStoreID"].size).rv()
+                                          batch_number, disk=batch_disk, memory=batch_mem).rv()
             result_fids.append((result_id, batch_number))
             return batch_number + 1
         else:  # mostly for initial conditions, do nothing
@@ -267,9 +273,6 @@ def shardSamJobFunction(job, config, alignment_shard, hmm, batch_job_function, f
         assert(query_seqs is not None), "[realignSamFile]ERROR query_batch is NONE"
         assert(query_labs is not None), "[realignSamFile]ERROR query_labs is NONE"
 
-        # TODO consider moving this to the child job, although you would have to send the sam too then...
-        # unless I refactor the exonerateCigar function, which is totally doable, you just need the
-        # reference name
         exonerate_cigar_batch.append(getExonerateCigarFormatString(aligned_segment, sam) + "\n")
         query_seqs.append(aligned_segment.query_sequence + "\n")
         query_labs.append(aligned_segment.query_name + "\n")
@@ -283,7 +286,6 @@ def shardSamJobFunction(job, config, alignment_shard, hmm, batch_job_function, f
     job.fileStore.logToMaster("[shardSamJobFunction]Made {} batches".format(batch_number + 1))
     # disk requirement <= alignment + exonerate cigars
     # memory requirement <= alignment 
-    disk   = (2 * config["reference_FileStoreID"].size)
-    memory = (6 * alignment_fid.size)
-    return job.addFollowOnJobFn(followOn_job_function, config, alignment_shard, cPecan_results, disk=disk,
-                                memory=memory).rv()
+    #memory = (6 * alignment_fid.size)
+    return job.addFollowOnJobFn(followOn_job_function, config, alignment_shard, cPecan_results,
+                                disk=followOn_disk, memory=followOn_mem).rv()

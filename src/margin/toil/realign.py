@@ -46,20 +46,19 @@ def realignSamFileJobFunction(job, config, input_samfile_fid, output_label):
     smaller_alns, uid_to_read = splitLargeAlignment(job,
                                                     config["split_alignments_to_this_many"],
                                                     input_samfile_fid)
-    realigned_fids            = []
-    hidden_markov_model       = downloadHmm(job, config)
+    realigned_fids      = []
+    hidden_markov_model = downloadHmm(job, config)
 
     for aln in smaller_alns:
         disk   = input_samfile_fid.size + config["reference_FileStoreID"].size
         memory = (6 * input_samfile_fid.size)
-        realigned_sam = job.addChildJobFn(shardSamJobFunction, config, aln, hidden_markov_model,
-                                          cPecanRealignJobFunction,
-                                          rebuildSamJobFunction,
-                                          batch_disk=disk,
-                                          followOn_disk=(2 * config["reference_FileStoreID"].size),
-                                          followOn_mem=(6 * aln.FileStoreID.size),
-                                          disk=disk, memory=memory).rv()
-        realigned_fids.append(realigned_sam)
+        realigned_fids.append(job.addChildJobFn(shardSamJobFunction, config, aln, hidden_markov_model,
+                                                cPecanRealignJobFunction,
+                                                rebuildSamJobFunction,
+                                                batch_disk=disk,
+                                                followOn_disk=(2 * config["reference_FileStoreID"].size),
+                                                followOn_mem=(6 * aln.FileStoreID.size),
+                                                disk=disk, memory=memory).rv())
 
     job.addFollowOnJobFn(combineRealignedSamfilesJobFunction, config, input_samfile_fid, realigned_fids,
                          uid_to_read, output_label)
@@ -209,7 +208,12 @@ def rebuildSamJobFunction(job, config, alignment_shard, cPecan_cigar_fileIds):
 def shardSamJobFunction(job, config, alignment_shard, hmm, batch_job_function, followOn_job_function,
                         batch_disk=human2bytes("1G"), followOn_disk=human2bytes("3G"),
                         batch_mem=human2bytes("2G"), followOn_mem=human2bytes("2G")):
-    # get the sam file locally
+    # type (toil.job.Job, dict, AlignmentShard, Hmm, JobFunction, JobFuncton, bytes, bytes, bytes, bytes)
+    """workhorse job function that spawns alignment jobs. given an alignment shard (contains start, end
+    and fileStore_ID) this function spaws off `batch_job_functions`s that perform work. it collects
+    the return values from the `batch_job_function`s and hands them off to the followOn_job_function
+    returns: the return value from the followOn_function (.rv())
+    """
     alignment_fid   = alignment_shard.FileStoreID
     local_sam_path  = job.fileStore.readGlobalFile(alignment_fid)
     reference_fasta = job.fileStore.readGlobalFile(config["reference_FileStoreID"])
@@ -284,8 +288,5 @@ def shardSamJobFunction(job, config, alignment_shard, hmm, batch_job_function, f
     send_alignment_batch(result_fids=cPecan_results, batch_number=batch_number)
     sam.close()
     job.fileStore.logToMaster("[shardSamJobFunction]Made {} batches".format(batch_number + 1))
-    # disk requirement <= alignment + exonerate cigars
-    # memory requirement <= alignment 
-    #memory = (6 * alignment_fid.size)
     return job.addFollowOnJobFn(followOn_job_function, config, alignment_shard, cPecan_results,
                                 disk=followOn_disk, memory=followOn_mem).rv()

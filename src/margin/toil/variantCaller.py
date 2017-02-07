@@ -1,9 +1,9 @@
 import os
 import cPickle
 
-import pandas as pd
-
 from itertools import islice
+
+import pandas as pd
 
 from toil_lib import require
 from toil_lib.programs import docker_call

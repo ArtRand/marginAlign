@@ -87,19 +87,23 @@ class LocalFile(object):
     """A struct containing the path and handle for a file, used to easily access the a file and
     it's contents primarly useful for files that aren't in the FileStore already
     """
-    def __init__(self, workdir, filename=None):
-        # TODO make this an os.path.join
+    def __init__(self, workdir, filename=None, touch=False):
         if filename is None:
             filename = "%s.tmp" % uuid.uuid4().hex
-        self.path     = workdir + "/" + filename
+
+        self.fullpath = workdir + "/" + filename
         self.filename = filename
         self.workdir  = workdir
+
+        if touch:
+            _h = open(self.path, "w")
+            _h.close()
 
     def filenameGetter(self):
         return self.filename
 
     def fullpathGetter(self):
-        return self.path
+        return self.fullpath
 
     def workdirGetter(self):
         return self.workdir

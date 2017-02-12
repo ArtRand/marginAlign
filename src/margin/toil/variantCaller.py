@@ -131,7 +131,6 @@ def writeAndDeliverVCF(job, config, nested_variant_calls, output_label):
     job.addFollowOnJobFn(combineVcfShardsJobFunction, config, vcf_shards, output_label)
 
 
-# FIXME rename this function because it returns variant calls now
 def marginalizePosteriorProbsJobFunction(job, config, alignment_shard, cPecan_alignedPairs_fids):
     # type(toil.job.Job, dict, FileStoreID, list<FileStoreId>)
     """reads in the posteriors and marginalizes (reduces) over the columns of the alignment returns a

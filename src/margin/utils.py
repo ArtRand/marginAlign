@@ -57,6 +57,15 @@ def getExonerateCigarFormatString(alignedSegment, sam):
     ##End assertions
     return completeCigarString
 
+
+def getExonerateCigarFormatStringWithCheck(aligned_segment, samfile):
+    try:
+        cigar = getExonerateCigarFormatString(aligned_segment, samfile)
+        return cigar, True
+    except AssertionError:
+        return None, False
+
+
 def samToBamFile(samInputFile, bamOutputFile):
     """Converts a sam file to a bam file (sorted)
     """

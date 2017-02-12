@@ -5,10 +5,11 @@ import pysam
 from bd2k.util.humanize import human2bytes
 from toil_lib import require
 
-from margin.utils import getFastaDictionary, samIterator, getExonerateCigarFormatString
+from margin.utils import getFastaDictionary, samIterator, getExonerateCigarFormatStringWithCheck
 
 
 def shardSamJobFunction(job, config, alignment_shard, hmm, batch_job_function, followOn_job_function,
+                        exonerateCigarStringFn=getExonerateCigarFormatStringWithCheck,
                         batch_disk=human2bytes("1G"), followOn_disk=human2bytes("3G"),
                         batch_mem=human2bytes("2G"), followOn_mem=human2bytes("2G")):
     # type (toil.job.Job, dict, AlignmentShard, Hmm, JobFunction, JobFuncton, bytes, bytes, bytes, bytes)
@@ -80,7 +81,12 @@ def shardSamJobFunction(job, config, alignment_shard, hmm, batch_job_function, f
         assert(query_seqs is not None), "[realignSamFile]ERROR query_batch is NONE"
         assert(query_labs is not None), "[realignSamFile]ERROR query_labs is NONE"
 
-        exonerate_cigar_batch.append(getExonerateCigarFormatString(aligned_segment, sam) + "\n")
+        #exonerate_cigar_batch.append(getExonerateCigarFormatString(aligned_segment, sam) + "\n")
+        exonerate_cigar, ok = exonerateCigarStringFn(aligned_segment, sam)
+        if not ok:
+            continue
+        #exonerate_cigar_batch.append(exonerateCigarStringFn(aligned_segment, sam) + "\n")
+        exonerate_cigar_batch.append(exonerate_cigar + "\n")
         query_seqs.append(aligned_segment.query_sequence + "\n")
         query_labs.append(aligned_segment.query_name + "\n")
         # updates

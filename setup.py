@@ -3,7 +3,7 @@
 from setuptools import setup, find_packages
 
 setup(name="marginAlign",
-      version="1.1.7",
+      version="1.1.9",
       description="Toil-based functions for performing MinION sequence analysis",
       author="Benedict Paten and Art Rand",
       author_email="benedict@soe.ucsc.edu, arand@soe.ucsc.edu",

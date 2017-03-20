@@ -28,20 +28,21 @@ def collectAlignmentStatsJobFunction(job, config, full_alignment_fid, output_lab
                                      config["local_alignment"]).rv()
                    for alignment in smaller_alns]
 
-    job.addFollowOnJobFn(deliverAlignmentStats, config, stat_shards, output_label)
+    job.addFollowOnJobFn(deliverAlignmentStats, config, stat_shards, output_label, disk=disk)
     return
 
 
 def marginStatsJobFunction(job, alignment_fid, uid_to_read, reference_fid, fastq_fid, local_alignment):
     # type (toil.job.Job, filestoreID, filestoreID, filestoreID, bool)
     def write_stats(ras):
-        l = "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % (uid_to_read[ras.read_label],
-                                              str(ras.identity()),
-                                              str(ras.readCoverage()),
-                                              str(ras.mismatchesPerAlignedBase()),
-                                              str(ras.deletionsPerReadBase()),
-                                              str(ras.insertionsPerReadBase()),
-                                              str(ras.readLength()))
+        l = "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % (uid_to_read[ras.read_label],
+                                                  str(ras.readIdentity()),
+                                                  str(ras.alignmentIdentity()),
+                                                  str(ras.readCoverage()),
+                                                  str(ras.mismatchesPerAlignedBase()),
+                                                  str(ras.deletionsPerReadBase()),
+                                                  str(ras.insertionsPerReadBase()),
+                                                  str(ras.readLength()))
         _handle.write(l)
 
     sam_file    = job.fileStore.readGlobalFile(alignment_fid)
@@ -64,12 +65,13 @@ def marginStatsJobFunction(job, alignment_fid, uid_to_read, reference_fid, fastq
 def deliverAlignmentStats(job, config, stat_shards, output_label):
     def parse_stats(f):
         df = pd.read_table(f,
-                           usecols=(0, 1, 2, 3, 4, 5, 6),
-                           names=["read_label", "identity", "coverage",
-                                  "mismatchesPerAlignedBase", "deletionsPerReadBase",
+                           usecols=(0, 1, 2, 3, 4, 5, 6, 7),
+                           names=["read_label", "readIdentity", "alignmentIdentity",
+                                  "coverage", "mismatchesPerAlignedBase", "deletionsPerReadBase",
                                   "insertionsPerReadBase", "readLength"],
                            dtype={"read_label"               : numpy.str,
-                                  "identity"                 : numpy.float64,
+                                  "readIdentity"             : numpy.float64,
+                                  "alignmentIdentity"        : numpy.float64,
                                   "coverage"                 : numpy.float64,
                                   "mismatchesPerAlignedBase" : numpy.float64,
                                   "deletionsPerReadBase"     : numpy.float64,
@@ -82,13 +84,14 @@ def deliverAlignmentStats(job, config, stat_shards, output_label):
                          filename="{sample}_{out_label}_stats.txt"
                          "".format(sample=config["sample_label"], out_label=output_label))
     _handle  = open(out_file.fullpathGetter(), "w")
-    header   = "#read\tidentity\treadCoverage\tmismatchesPerAlignedBase\t"\
+    header   = "#read\treadIdentity\talignmentIdentity\treadCoverage\tmismatchesPerAlignedBase\t"\
                "deletionsPerReadBase\tinsertionsPerReadBase\treadLength\n"
-    line     = "%s\t%s\t%s\t%s\t%s\t%s\t%s\n"
+    line     = "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n"
     _handle.write(header)
     for _, row in stats.iterrows():
         _handle.write(line % (row["read_label"],
-                              row["identity"],
+                              row["readIdentity"],
+                              row["alignmentIdentity"],
                               row["coverage"],
                               row["mismatchesPerAlignedBase"],
                               row["deletionsPerReadBase"],
